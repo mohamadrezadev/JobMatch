@@ -2,28 +2,28 @@ import { IsEmail, IsString, MinLength, IsOptional } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail()
-  email: string;
+  declare email: string;
 
   @IsString()
   @MinLength(8)
-  password: string;
+  declare password: string;
 
   @IsString()
-  firstName: string;
+  declare firstName: string;
 
   @IsString()
-  lastName: string;
+  declare lastName: string;
 }
 
 export class LoginDto {
   @IsEmail()
-  email: string;
+  declare email: string;
 
   @IsString()
-  password: string;
+  declare password: string;
 }
 
 export class RefreshDto {
   @IsString()
-  refreshToken: string;
+  declare refreshToken: string;
 }

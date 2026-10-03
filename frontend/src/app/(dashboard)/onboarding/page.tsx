@@ -185,7 +185,7 @@ export default function OnboardingPage() {
       )}
 
       {step > 1 && (
-        <button onClick={() => setStep(step - 1)} className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
+        <button onClick={() => setStep((step - 1) as Step)} className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
       )}
     </div>
   );

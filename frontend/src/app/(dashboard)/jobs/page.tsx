@@ -35,12 +35,12 @@ export default function JobsPage() {
           </div>
           {total > 12 && (
             <div className="flex items-center justify-center gap-2">
-              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
-                className="rounded border px-3 py-1 text-sm disabled:opacity-40 hover:bg-gray-50"
+              <button disabled={page <= 1} onClick={() => setPage((p: number) => p - 1)}
+                className="rounded border border-gray-300 px-3 py-1 text-sm disabled:opacity-40 hover:bg-gray-50"
               >Previous</button>
               <span className="text-sm text-gray-500">Page {page}</span>
-              <button disabled={page * 12 >= total} onClick={() => setPage(p => p + 1)}
-                className="rounded border px-3 py-1 text-sm disabled:opacity-40 hover:bg-gray-50"
+              <button disabled={page * 12 >= total} onClick={() => setPage((p: number) => p + 1)}
+                className="rounded border border-gray-300 px-3 py-1 text-sm disabled:opacity-40 hover:bg-gray-50"
               >Next</button>
             </div>
           )}

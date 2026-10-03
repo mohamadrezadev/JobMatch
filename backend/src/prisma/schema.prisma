@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Local Dev (SQLite — remove when using PostgreSQL) ───────────────────────
+// datasource db {
+//   provider = "sqlite"
+//   url      = "file:./dev.sqlite"
+// }
+
 enum ExperienceLevel {
   Junior
   Mid

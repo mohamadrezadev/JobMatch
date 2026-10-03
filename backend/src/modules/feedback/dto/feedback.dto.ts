@@ -3,10 +3,10 @@ import { FeedbackRating, FeedbackReason } from '../feedback.enums';
 
 export class SubmitFeedbackDto {
   @IsUUID()
-  jobId: string;
+  declare jobId: string;
 
   @IsEnum(FeedbackRating)
-  rating: FeedbackRating;
+  declare rating: FeedbackRating;
 
   @IsOptional()
   @IsEnum(FeedbackReason)

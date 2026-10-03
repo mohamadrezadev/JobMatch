@@ -10,7 +10,7 @@ interface JobsState {
   isLoading: boolean;
   currentJob: Job | null;
   searchKeyword: string;
-  setPage: (page: number) => void;
+  setPage: (page: number | ((p: number) => number)) => void;
   setSearchKeyword: (keyword: string) => void;
   fetchJobs: (page?: number, keyword?: string) => Promise<void>;
   fetchJob: (id: string) => Promise<void>;
@@ -26,7 +26,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
   currentJob: null,
   searchKeyword: '',
 
-  setPage: (page) => set({ page }),
+  setPage: (page) => set({ page: typeof page === 'function' ? page(get().page) : page }),
   setSearchKeyword: (keyword) => set({ searchKeyword: keyword, page: 1 }),
 
   fetchJobs: async (page = 1, keyword?) => {

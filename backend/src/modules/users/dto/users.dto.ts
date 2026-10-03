@@ -16,6 +16,7 @@ export class UpdateProfileDto {
 }
 
 export class AddSkillDto {
-  @IsString() skillName: string;
+  @IsString()
+  declare skillName: string;
   @IsOptional() @IsEnum(SkillLevel) level?: SkillLevel;
 }

@@ -1,6 +1,7 @@
 {
   "name": "jobmatch",
   "version": "0.1.0",
+  "packageManager": "pnpm@10.12.1",
   "private": true,
   "description": "AI Career Copilot for junior developers",
   "scripts": {

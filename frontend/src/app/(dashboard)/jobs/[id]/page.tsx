@@ -74,11 +74,11 @@ export default function JobDetailPage() {
             {skills.map((s) => <SkillMatchBadge key={s} skill={s} />)}
           </div>
         </Card>
-        {(job.preferredSkills as { name: string }[] | undefined)?.length > 0 && (
+        {((job.preferredSkills as { name: string }[] | undefined) ?? []).length > 0 && (
           <Card>
             <h2 className="mb-3 font-semibold text-gray-900">Preferred Skills</h2>
             <div className="flex flex-wrap gap-1">
-              {((job.preferredSkills as { name: string }[]) || []).map((s) => (
+              {((job.preferredSkills as { name: string }[]) ?? []).map((s) => (
                 <Badge key={s.name}>{s.name}</Badge>
               ))}
             </div>
@@ -86,7 +86,7 @@ export default function JobDetailPage() {
         )}
       </div>
 
-      {match?.skillGaps.length > 0 && (
+      {match?.skillGaps && match.skillGaps.length > 0 && (
         <Card>
           <h2 className="mb-3 font-semibold text-gray-900">Skill Gaps</h2>
           <div className="flex flex-wrap gap-1">
