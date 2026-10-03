@@ -1,0 +1,25 @@
+schema: spec-driven
+
+# Project context (optional)
+context: |
+  Project: JobMatch
+  Tagline: AI Career Copilot for junior developers
+  Stack: NestJS + TypeScript, PostgreSQL + Prisma, Next.js 15 + React 19, Zustand, JWT auth, OpenAI API
+  Domain: Job matching, skill gap analysis, resume generation
+  
+  Three Design Principles:
+  1. Explainability — User must understand WHY a job is a good/bad fit
+  2. Honesty — Never fabricate user experience or skills
+  3. Actionability — Every insight leads to an action
+
+# Per-artifact rules (optional)
+rules:
+  proposal:
+    - Always include Problem, Scope (In/Out), API Contract, Acceptance Criteria
+    - Keep proposals under 800 words
+  specs:
+    - Use WHEN/THEN/AND format for scenarios
+    - Include both happy path and error cases
+  tasks:
+    - Break into logical groups (Backend, Frontend, Database)
+    - Each task should be completable in one session

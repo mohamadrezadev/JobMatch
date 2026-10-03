@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ExperienceLevel {
+  Junior
+  Mid
+  Senior
+}
+
+enum WorkType {
+  Remote
+  OnSite
+  Hybrid
+}
+
+enum SkillCategory {
+  Programming
+  Framework
+  Tool
+  Soft
+}
+
+enum SkillLevel {
+  Beginner
+  Intermediate
+  Advanced
+}
+
+enum FeedbackRating {
+  Interested
+  NotInterested
+}
+
+enum FeedbackReason {
+  Salary
+  Location
+  Technology
+  ExperienceLevel
+  JobType
+  NotInterestedInCompany
+  Other
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile         Profile?
+  userSkills      UserSkill[]
+  resumes         Resume[]
+  feedbacks       JobFeedback[]
+
+  @@map("users")
+}
+
+model Profile {
+  userId            String   @id
+  title             String?
+  bio               String?
+  location          String?
+  desiredSalary     Float?
+  experienceYears   Float?
+  experienceLevel   ExperienceLevel?
+  workType          WorkType?
+  socialLinks       Json?
+  isProfileComplete Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+model Skill {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  category    SkillCategory
+  createdAt   DateTime @default(now())
+
+  userSkills UserSkill[]
+
+  @@map("skills")
+}
+
+model UserSkill {
+  id                String     @id @default(uuid())
+  userId            String
+  skillId           String
+  level             SkillLevel @default(Intermediate)
+  yearsOfExperience Float?
+  createdAt         DateTime   @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill   Skill   @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillId])
+  @@map("user_skills")
+}
+
+model Job {
+  id              String    @id @default(uuid())
+  title           String
+  company         String
+  location        String
+  workType        WorkType
+  experienceLevel String
+  salaryMin       Float?
+  salaryMax       Float?
+  description     String
+  requiredSkills  Json
+  preferredSkills Json?
+  source          String
+  sourceUrl       String?
+  postedAt        DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  resumes     Resume[]
+  feedbacks   JobFeedback[]
+
+  @@index([source])
+  @@index([postedAt])
+  @@map("jobs")
+}
+
+model Resume {
+  id        String   @id @default(uuid())
+  userId    String
+  jobId     String
+  content   Json
+  version   Int      @default(1)
+  pdfPath   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, jobId])
+  @@map("resumes")
+}
+
+model JobFeedback {
+  id        String            @id @default(uuid())
+  userId    String
+  jobId     String
+  rating    FeedbackRating
+  reason    FeedbackReason?
+  notes     String?
+  createdAt DateTime          @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([jobId])
+  @@map("job_feedbacks")
+}
