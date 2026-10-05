@@ -35,7 +35,7 @@ export class MatchingService {
     const profile = await this.prisma.profile.findUnique({ where: { userId } });
     let expScore = 50;
     let expDetails = 'Experience not set';
-    if (profile?.experienceYears != null) {
+    if (profile?.experienceYears != null && job.experienceLevel != null) {
       expScore = Math.min(100, (profile.experienceYears * 20) / Math.max(1, parseInt(job.experienceLevel) || 1));
       expDetails = `${profile.experienceYears} years vs required ${job.experienceLevel}`;
     }

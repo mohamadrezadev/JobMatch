@@ -6,12 +6,17 @@ let mockAuthenticated = false;
 jest.mock('@/stores/useAuthStore', () => ({ useAuthStore: () => ({ isAuthenticated: mockAuthenticated, user: mockAuthenticated ? { id: 'owner' } : null }) }));
 jest.mock('@/lib/api-client', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() } }));
 describe('Reference job discovery', () => {
-  beforeEach(() => { jest.clearAllMocks(); mockAuthenticated = false; });
+  beforeEach(() => { jest.clearAllMocks(); mockAuthenticated = false; window.history.replaceState({}, '', '/jobs?preview=design'); });
   it('searches skills and selects a matching detail', () => {
     render(<JobsView />);
     fireEvent.change(screen.getByLabelText('جستجوی فرصت‌ها'), { target: { value: 'Tailwind' } });
     expect(screen.getAllByRole('button', { name: /شرکت پیشگامان فناوری/ })).toHaveLength(1);
     expect(screen.queryByRole('button', { name: /استارتاپ هوش‌نو/ })).not.toBeInTheDocument();
+  });
+  it('does not show samples in ordinary anonymous navigation', () => {
+    window.history.replaceState({}, '', '/jobs');
+    render(<JobsView />);
+    expect(screen.queryByRole('button', { name: /شرکت پیشگامان فناوری/ })).not.toBeInTheDocument();
   });
   it('supports hybrid and remote filters with an empty state', () => {
     render(<JobsView />);

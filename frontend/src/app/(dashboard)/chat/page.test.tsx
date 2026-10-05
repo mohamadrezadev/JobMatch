@@ -22,7 +22,7 @@ describe("Chat composer", () => {
     jest.clearAllMocks();
     sessionStorage.clear();
     useChatStore.getState().reset(null);
-    (apiClient.get as jest.Mock).mockResolvedValue({ data: { data: [] } });
+    (apiClient.get as jest.Mock).mockImplementation((url: string) => Promise.resolve({ data: { data: url.endsWith('/latest') ? null : [] } }));
   });
   it("preserves a draft and displays an error after a failed send", async () => {
     (apiClient.post as jest.Mock).mockRejectedValue(new Error("offline"));
@@ -62,7 +62,7 @@ describe("Chat composer", () => {
                   },
                 ],
               }
-            : [],
+            : url.endsWith('/latest') ? null : [],
         },
       }),
     );
@@ -96,7 +96,7 @@ describe("Chat composer", () => {
                 context,
                 messages: [{ id: "m", role: "assistant", content: "ready" }],
               }
-            : [],
+            : url.endsWith('/latest') ? null : [],
         },
       }),
     );

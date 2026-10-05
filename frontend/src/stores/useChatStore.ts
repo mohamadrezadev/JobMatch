@@ -7,6 +7,7 @@ import type {
 } from "@/types/chat";
 
 interface ChatState {
+  discoveryTrigger: number;
   owner: string | null;
   generation: number;
   conversations: ConversationSummary[];
@@ -20,6 +21,7 @@ interface ChatState {
   send: (message: string) => Promise<boolean>;
 }
 export const useChatStore = create<ChatState>((set, get) => ({
+  discoveryTrigger: 0,
   owner: null,
   generation: 0,
   conversations: [],
@@ -29,6 +31,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   reset: (owner) =>
     set((state) => ({
       owner,
+      discoveryTrigger: 0,
       generation: state.generation + 1,
       conversations: [],
       active: null,
@@ -36,7 +39,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
     })),
   startNew: () => {
-    if (!get().pending) set({ active: null, error: null });
+    if (!get().pending) set({ active: null, error: null, discoveryTrigger: 0 });
   },
   loadList: async () => {
     const { generation, owner } = get();
@@ -55,6 +58,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   select: async (id) => {
     if (get().pending || !get().owner) return;
     const generation = get().generation;
+    set({ discoveryTrigger: 0 });
     set({ pending: true, error: null });
     try {
       const response = await apiClient.get<{ data: Conversation }>(
@@ -108,6 +112,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
       set((state) => ({
         active: optimistic,
+        discoveryTrigger: data.readyForSearch && ['JOB_SEARCH', 'UPDATE_SEARCH'].includes(data.intent) ? state.discoveryTrigger + 1 : 0,
         conversations: [
           { id: optimistic.id, updatedAt: time },
           ...state.conversations.filter((c) => c.id !== optimistic.id),

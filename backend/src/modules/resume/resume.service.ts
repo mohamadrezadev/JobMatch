@@ -42,7 +42,7 @@ RULES:
 4. Output JSON: { "summary": "...", "highlights": ["..."], "skills_to_emphasize": ["..."] }`;
 
     try {
-      this.openai ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      this.openai ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY, baseURL: process.env.OPENAI_BASE_URL || undefined });
       const response = await this.openai.chat.completions.create({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],

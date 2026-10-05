@@ -1,0 +1,4 @@
+# Design
+An independent Zustand discovery store scopes state to owner, conversation, preferences and search trigger. A generation counter discards stale responses. A reused DiscoveryPanel appears in authenticated chat. Search runs only after JOB_SEARCH/UPDATE_SEARCH replies marked ready; selecting/importing history restores results and offers manual discovery.
+
+Cards use the approved JobMatch theme. They link to persisted job details and original sources without rendering source HTML. They show null values honestly, partial-source warnings and recoverable errors. The jobs page starts empty and reads the real API for authenticated users. Samples are available only through an explicit development design preview (`?preview=design`) or development button; production does not inject sample jobs.

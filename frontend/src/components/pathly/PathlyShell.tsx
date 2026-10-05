@@ -39,7 +39,6 @@ export function PathlyShell({ children }: { children: React.ReactNode }) {
               <Icon name={link.icon} className={`w-5 text-center ${link.href === '/academy' ? 'text-emerald-500' : link.href === '/chat' ? 'text-brand-500' : 'text-slate-400'}`} />
               <span>{link.label}</span>
               {link.href === '/academy' && <span className="mr-auto rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-500">جدید</span>}
-              {link.href === '/jobs' && !isAuthenticated && <span title="تعداد نمایشی مرجع" className="mr-auto rounded-full bg-brand-500/10 px-2 py-0.5 text-xs font-bold text-brand-500">۱۲</span>}
             </Link>)}
           </nav>
         </div>

@@ -9,17 +9,19 @@ export interface Job {
   id: string;
   title: string;
   company: string;
-  location: string;
-  workType: 'Remote' | 'OnSite' | 'Hybrid';
-  experienceLevel: string;
+  location: string | null;
+  workType: 'Remote' | 'OnSite' | 'Hybrid' | null;
+  experienceLevel: string | null;
   salaryMin?: number | null;
   salaryMax?: number | null;
-  description: string;
+  description: string | null;
   requiredSkills: JobSkillRef[] | Skill[];
   preferredSkills?: JobSkillRef[] | Skill[];
   source: string;
   sourceUrl?: string | null;
-  postedAt: string;
+  postedAt: string | null;
+  currency?: 'TOMAN' | null;
+  salaryPeriod?: 'MONTHLY' | null;
 }
 
 export interface MatchResult {

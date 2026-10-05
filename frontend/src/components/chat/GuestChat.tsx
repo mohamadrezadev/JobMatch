@@ -195,6 +195,11 @@ export function GuestChat() {
           ))}
         </div>
       )}
+      {chat && !chat.authRequired && chat.context.searchContext.targetRoles.length > 0 && (
+        <p className="mx-5 mb-4 rounded-xl bg-brand-500/5 p-4 text-xs leading-6 text-slate-500 dark:text-slate-400">
+          شرایط جستجویت آماده است. برای یافتن آگهی‌های واقعی، <Link href="/register" className="font-bold text-brand-500">حساب بساز</Link> یا <Link href="/login" className="font-bold text-brand-500">وارد شو</Link>؛ این گفتگو حفظ می‌شود.
+        </p>
+      )}
       {chat?.authRequired && (
         <div
           role="status"

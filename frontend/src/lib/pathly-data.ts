@@ -2,7 +2,7 @@ import type { Job } from '@/types/job';
 export interface PathlyJob {
   id: string; title: string; company: string; location: string; locationText: string;
   type: string; salary: string; score?: number; matchedSkills: string[]; missingSkills: string[];
-  description: string; isRemote: boolean; isHybrid: boolean; demo: boolean;
+  source?: string; sourceUrl?: string; description: string; isRemote: boolean; isHybrid: boolean; demo: boolean;
 }
 export const demoJobs: PathlyJob[] = [
   { id: 'demo-1', title: 'برنامه‌نویس جونیور React / Next.js', company: 'شرکت پیشگامان فناوری', location: 'tehran', locationText: 'تهران (هیبرید)', type: 'تمام وقت', salary: '۲۲ الی ۲۸ میلیون تومان', score: 92, matchedSkills: ['React.js', 'JavaScript', 'Tailwind CSS', 'Git'], missingSkills: ['TypeScript Fundamentals'], description: 'ما به‌دنبال یک همکار جونیور مشتاق به یادگیری برای پیاده‌سازی کامپوننت‌های مدرن وب هستیم.', isRemote: false, isHybrid: true, demo: true },
@@ -13,6 +13,7 @@ export function unwrap<T>(response: T | { success: boolean; data: T }): T {
   return response && typeof response === 'object' && 'success' in response && 'data' in response ? response.data : response as T;
 }
 export function toPathlyJob(job: Job): PathlyJob {
-  const salary = job.salaryMin || job.salaryMax ? [job.salaryMin, job.salaryMax].filter(value => value != null).map(value => value!.toLocaleString('fa-IR')).join(' الی ') + ' تومان' : 'توافقی';
-  return { id: job.id, title: job.title, company: job.company, location: job.location, locationText: `${job.location} (${job.workType === 'Remote' ? 'دورکاری' : job.workType === 'Hybrid' ? 'هیبرید' : 'حضوری'})`, type: job.experienceLevel, salary, matchedSkills: job.requiredSkills.map(skill => skill.name), missingSkills: [], description: job.description, isRemote: job.workType === 'Remote', isHybrid: job.workType === 'Hybrid', demo: false };
+  const salary = job.salaryMin != null || job.salaryMax != null ? [job.salaryMin, job.salaryMax].filter(value => value != null).map(value => value!.toLocaleString('fa-IR')).join(' الی ') + (job.currency === 'TOMAN' ? ' تومان' : ' (واحد اعلام نشده)') : 'حقوق اعلام نشده';
+  const work = job.workType === 'Remote' ? 'دورکاری' : job.workType === 'Hybrid' ? 'هیبرید' : job.workType === 'OnSite' ? 'حضوری' : 'نوع حضور اعلام نشده';
+  return { id: job.id, title: job.title, company: job.company, location: job.location ?? '', locationText: `${job.location ?? 'شهر اعلام نشده'} (${work})`, type: job.experienceLevel ?? 'سطح تجربه اعلام نشده', salary, matchedSkills: job.requiredSkills.map(skill => skill.name), missingSkills: [], description: job.description ?? 'شرح موقعیت در منبع اعلام نشده است.', isRemote: job.workType === 'Remote', isHybrid: job.workType === 'Hybrid', demo: false, source: job.source, sourceUrl: job.sourceUrl ?? undefined };
 }

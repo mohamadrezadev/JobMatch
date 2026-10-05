@@ -6,6 +6,8 @@ import { guestContinuationKey, guestDraftKey } from "@/lib/guest-chat-client";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { Icon } from "@/components/pathly/Icon";
+import { DiscoveryPanel } from './DiscoveryPanel';
+import { useDiscoveryStore } from '@/stores/useDiscoveryStore';
 
 const workLabels = { Remote: "دورکار", Hybrid: "هیبرید", OnSite: "حضوری" };
 export default function ChatExperience() {
@@ -30,6 +32,7 @@ function AuthenticatedChat() {
     if (!hydrated) return;
     const owner = isAuthenticated ? (user?.id ?? null) : null;
     useChatStore.getState().reset(owner);
+    useDiscoveryStore.getState().reset();
     setDraft(
       new URLSearchParams(window.location.search).get("prompt") ??
         sessionStorage.getItem(guestDraftKey) ??
@@ -98,7 +101,7 @@ function AuthenticatedChat() {
   const context = chat.active?.context.searchContext;
   const ready = Boolean(context?.targetRoles.length);
   return (
-    <section className="glass-card flex h-[calc(100dvh-120px)] min-h-[440px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-light-surface dark:border-dark-border dark:bg-dark-surface">
+    <section className="glass-card flex h-[calc(100dvh-184px)] min-h-[360px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-light-surface dark:border-dark-border dark:bg-dark-surface md:h-[calc(100dvh-120px)] md:min-h-[440px]">
       <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/50">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-500 to-indigo-600 text-white shadow-md">
@@ -195,7 +198,7 @@ function AuthenticatedChat() {
         aria-label="پیام‌های گفتگو"
         aria-live="polite"
         aria-relevant="additions"
-        className="flex-1 space-y-4 overflow-y-auto p-4 text-xs leading-relaxed"
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-xs leading-relaxed"
       >
         {!chat.active?.messages.length && (
           <div className="flex animate-slide-in items-start gap-3">
@@ -263,11 +266,12 @@ function AuthenticatedChat() {
             {context.minimumSalary !== undefined && (
               <span>{context.minimumSalary.toLocaleString("fa-IR")} تومان</span>
             )}
-            <span>درخواست ذخیره شده است؛ جستجوی واقعی هنوز اجرا نمی‌شود.</span>
+            <span>نتایج جستجوی منابع ایرانی پایین گفتگو نمایش داده می‌شود.</span>
           </div>
         </details>
       )}
-      <div className="border-t border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/50">
+      {ready && chat.active && context && <DiscoveryPanel conversationId={chat.active.id} context={context} trigger={chat.discoveryTrigger} />}
+      <div className="shrink-0 border-t border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/50">
         <form onSubmit={submit} className="flex gap-2">
           <label htmlFor="chat-input" className="sr-only">
             پیام شما

@@ -7,7 +7,7 @@ export class JobsService {
 
   async list(page = 1, limit = 12) {
     const [items, total] = await Promise.all([
-      this.prisma.job.findMany({ skip: (page - 1) * limit, take: limit }),
+      this.prisma.job.findMany({ skip: (page - 1) * limit, take: limit, orderBy: { lastSeenAt: 'desc' } }),
       this.prisma.job.count(),
     ]);
     return { items, total, page, pages: Math.ceil(total / limit) };
@@ -31,14 +31,13 @@ export class JobsService {
       : {};
 
     const [items, total] = await Promise.all([
-      this.prisma.job.findMany({ where, skip: (page - 1) * limit, take: limit }),
+      this.prisma.job.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { lastSeenAt: 'desc' } }),
       this.prisma.job.count({ where }),
     ]);
     return { items, total, page, pages: Math.ceil(total / limit) };
   }
 
   async getRecommended() {
-    // For MVP, just return latest jobs sorted by postedAt
-    return this.prisma.job.findMany({ orderBy: { postedAt: 'desc' }, take: 5 });
+    return this.prisma.job.findMany({ orderBy: { lastSeenAt: 'desc' }, take: 5 });
   }
 }

@@ -1,4 +1,5 @@
 import { ChatModule } from './modules/chat';
+import { JobDiscoveryModule } from './modules/job-discovery/job-discovery.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
@@ -22,6 +23,7 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
     ResumeModule,
     FeedbackModule,
     ChatModule,
+    JobDiscoveryModule,
   ],
 
 })

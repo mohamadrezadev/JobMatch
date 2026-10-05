@@ -1,0 +1,21 @@
+diff --git a/open-sse/handlers/fetch/index.js b/open-sse/handlers/fetch/index.js
+index 364caa5..5f9a646 100644
+--- a/open-sse/handlers/fetch/index.js
++++ b/open-sse/handlers/fetch/index.js
+@@ -145,7 +145,7 @@ async function runTinyfish({ url, fmt, timeoutMs, apiKey, maxCharacters, costPer
+   const r = await tryFetch(baseUrl, {
+     method: "POST",
+     headers: { "content-type": "application/json", "X-API-Key": apiKey },
+-    body: JSON.stringify({ urls: [url], format: fmt }),
++    body: JSON.stringify({ urls: [url], format: fmt, links: true }),
+   }, timeoutMs);
+   if (!r.ok) return { success: false, status: r.timeout ? 504 : 502, error: r.error };
+   const upstreamMs = Date.now() - upstreamStart;
+@@ -161,6 +161,7 @@ async function runTinyfish({ url, fmt, timeoutMs, apiKey, maxCharacters, costPer
+     data: {
+       ...buildData({ provider: "tinyfish", url, title: page.title, format: fmt, text, links: page.links,
+         costUsd: costPerQuery, responseMs: Date.now() - startedAt, upstreamMs }),
++      final_url: typeof page.final_url === "string" ? page.final_url : null,
+       metadata: { author: page.author || null, published_at: page.published_date || null, language: page.language || null },
+     },
+   };

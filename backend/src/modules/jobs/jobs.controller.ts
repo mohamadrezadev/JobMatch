@@ -14,11 +14,6 @@ export class JobsController {
     return this.jobsService.list(Number(page), Number(limit));
   }
 
-  @Get(':id')
-  async getById(@Param('id') id: string) {
-    return this.jobsService.getById(id);
-  }
-
   @Post('search')
   async search(@Body() dto: SearchJobsDto) {
     return this.jobsService.search(dto.keyword, dto.page, dto.limit);
@@ -27,5 +22,10 @@ export class JobsController {
   @Get('recommended')
   async recommended() {
     return this.jobsService.getRecommended();
+  }
+
+  @Get(':id')
+  async getById(@Param('id') id: string) {
+    return this.jobsService.getById(id);
   }
 }

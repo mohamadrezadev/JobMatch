@@ -10,21 +10,22 @@ import { DemoNotice } from './DemoNotice';
 
 export function JobsView({ initialJobId }: { initialJobId?: string }) {
   const { isAuthenticated, user } = useAuthStore();
-  const [jobs, setJobs] = useState<PathlyJob[]>(demoJobs);
-  const [selectedId, setSelectedId] = useState(initialJobId ?? demoJobs[0].id);
+  const preview = process.env.NODE_ENV !== 'production' && typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === 'design';
+  const [jobs, setJobs] = useState<PathlyJob[]>([]);
+  const [selectedId, setSelectedId] = useState(initialJobId ?? '');
   const [query, setQuery] = useState('');
   const [location, setLocation] = useState('all');
-  const [junior, setJunior] = useState(true);
-  const [frontend, setFrontend] = useState(true);
+  const [junior, setJunior] = useState(preview);
+  const [frontend, setFrontend] = useState(preview);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [demo, setDemo] = useState(true);
+  const [demo, setDemo] = useState(preview);
   const [reload, setReload] = useState(0);
   const [matches, setMatches] = useState<Record<string, MatchResult>>({});
   useEffect(() => {
     let alive = true;
     setMatches({});
-    if (!isAuthenticated) { setJobs(demoJobs); setDemo(true); setSelectedId(initialJobId ?? demoJobs[0].id); return; }
+    if (!isAuthenticated) { setJobs(preview ? demoJobs : []); setDemo(preview); setSelectedId(preview ? demoJobs[0].id : ''); return; }
     setDemo(false); setJobs([]); setJunior(false); setFrontend(false); setLoading(true); setError('');
     async function load() {
       try {
@@ -40,7 +41,7 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
     }
     void load();
     return () => { alive = false; };
-  }, [isAuthenticated, user?.id, initialJobId, reload]);
+  }, [isAuthenticated, user?.id, initialJobId, reload, preview]);
   const filtered = useMemo(() => jobs.filter(job => {
     const terms = [job.title, job.company, ...job.matchedSkills].join(' ').toLowerCase();
     return terms.includes(query.toLowerCase()) &&
@@ -76,7 +77,7 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
         {!junior && !frontend && location === 'all' && <span className="text-slate-400">بدون محدودیت</span>}
       </div>
     </div>
-    {demo ? <DemoNotice>آگهی‌ها و امتیازهای این نما همان نمونه‌های مرجع هستند.</DemoNotice> : <p className="text-[10px] text-slate-400">فرصت‌های دریافت‌شده از JobMatch <button onClick={showDemo} className="mr-2 text-brand-500">مشاهده نمونه طراحی</button></p>}
+    {demo ? <DemoNotice>آگهی‌ها و امتیازهای این نما همان نمونه‌های مرجع هستند.</DemoNotice> : <p className="text-[10px] text-slate-400">فرصت‌های دریافت‌شده از JobMatch {process.env.NODE_ENV === 'development' && <button onClick={showDemo} className="mr-2 text-brand-500">مشاهده نمونه طراحی</button>}</p>}
     {demo && isAuthenticated && <button onClick={() => setReload(current => current + 1)} className="text-xs text-brand-500">بازگشت به فرصت‌های واقعی</button>}
     {loading && <p role="status" className="text-xs text-slate-400">در حال دریافت فرصت‌ها…</p>}
     {error && <p role="alert" className="rounded-xl bg-rose-500/10 p-4 text-xs text-rose-500">{error}<button onClick={() => setReload(current => current + 1)} className="mr-3 underline">تلاش دوباره</button></p>}
@@ -91,7 +92,7 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
       <div className="glass-card sticky top-6 h-fit rounded-2xl border border-slate-200 bg-light-surface p-6 dark:border-dark-border dark:bg-dark-surface lg:col-span-7">
         {selected ? <div className="space-y-6">
           <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4 dark:border-dark-border"><div className="space-y-1"><h2 className="text-xl font-bold text-slate-800 dark:text-white">{selected.title}</h2><p className="text-xs font-medium text-slate-400">{selected.company} • {selected.locationText}</p></div>{score !== undefined && <div className="flex shrink-0 flex-col items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-emerald-500"><span className="text-2xl font-black">{Math.round(score)}٪</span><span className="text-[10px] font-bold">تطابق با شما</span></div>}</div>
-          <div className="space-y-2"><h3 className="text-xs font-bold uppercase text-slate-400">شرح موقعیت شغلی</h3><p className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600 dark:text-slate-300">{selected.description}</p></div>
+          <div className="space-y-2">{selected.sourceUrl && <a href={selected.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-500">مشاهده آگهی اصلی در {selected.source} <Icon name="arrow-up-right-from-square" /></a>}<h3 className="text-xs font-bold uppercase text-slate-400">شرح موقعیت شغلی</h3><p className="whitespace-pre-wrap text-xs leading-relaxed text-slate-600 dark:text-slate-300">{selected.description}</p></div>
           <div className="grid grid-cols-1 gap-4 pt-2 md:grid-cols-2">
             <div className="space-y-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4"><h3 className="flex items-center gap-1.5 text-xs font-bold text-emerald-500"><Icon name="circle-check" />{selected.demo || match ? 'مهارت‌های منطبق با شما' : 'مهارت‌های موردنیاز آگهی'} ({matched.length})</h3><div className="flex flex-wrap gap-1">{matched.map(skill => <span key={skill} className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-300">{skill}</span>)}</div></div>
             <div className="space-y-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4"><h3 className="flex items-center gap-1.5 text-xs font-bold text-amber-500"><Icon name="triangle-exclamation" />شکاف مهارت (Skill Gap)</h3><div className="flex flex-wrap gap-1">{missing.map(skill => <span key={skill} className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-300">{skill}</span>)}{!selected.demo && !match && <span className="text-[10px] text-slate-400">تحلیل تطابق هنوز دریافت نشده است.</span>}</div></div>

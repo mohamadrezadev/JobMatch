@@ -1,0 +1,20 @@
+# Design
+
+Domain owns pure normalization, constraints and canonical identities. Application owns provider/repository ports and the discovery use case. Infrastructure contains the 9Router adapter, source validator and Prisma repository. Presentation owns JWT, DTOs, rate limits and the success/error envelope.
+
+The persisted conversation context is authoritative. Search preferences never become candidate skills. Search snippets and web instructions are not interpreted as commands or job facts. Extraction reads JobPosting JSON-LD, raw structured JSON, or explicit labeled text. Title AND company are required; optional fields are null. Expired postings are rejected. Source URLs, not guessed links, identify postings.
+
+Work type and city are hard constraints when supplied, including rejection of unknown work type for strict remote searches. Excluded companies/required skills are hard exclusions. Preferred skills rank, not restrict, discovery. Known monthly salaries normalize to toman (IRR / 10); unknown currency or period is not guessed. Unknown salary remains visible with warnings. A known salary range must guarantee the requested minimum.
+
+Each source issues one bounded query and at most ten fetches. Search/fetch requests have maximum fifteen-second timeouts; shared cancellation bounds provider work to sixty seconds. Successful sources survive other source failures. Run persistence uses serializable transactions, bounded conflict retries and uniqueness per conversation/context version. Fifteen-minute caching and a running lease prevent duplicate discovery. Job skill storage keeps existing `{ name }` arrays compatible with matching/resume code.
+
+Safety: allowlist HTTP(S) hosts/subdomains, prohibit credentials/IP literals/nondefault ports, require all DNS answers public, pin HEAD preflight DNS and manually validate every redirect. Provider-side fetch is a separate trust boundary: preflight cannot prevent a provider following a different redirect or resolving DNS again. `NINEROUTER_FETCH_POLICY_VERIFIED=false` blocks this path by default. Enable only after source restrictions, every redirect and public-address enforcement are verified at the fetch provider or controlled egress. Checking an echoed input URL is insufficient.
+
+Existing nullable source URLs remain valid. A unique URL index requires duplicate checking before migration; local jobs table was empty. Posting date no longer defaults to now, and discovery/last-seen timestamps are separate.
+
+## Grounding links and Markdown continuation
+Google is never added to the job-source allowlist. Only HTTPS on `vertexaisearch.cloud.google.com`, the exact `/grounding-api-redirect/<token>` path, default port, no credentials/query/fragment, is admitted as a transit candidate. A pinned-DNS GET manually validates each hop. Foreign/private redirects are rejected before another request. If this public bridge returns 403, a provider with verified enforcement may resolve it; its response must contain an explicit `final_url` on a permitted public source. An echoed input URL is insufficient. Router changes are prepared as a patch, not silently deployed.
+
+Listing pages are not job records. They enqueue only allowlisted detail links resolved relative to the established source URL. The queue and total fetches, including listing/bridge requests, stay bounded to ten per source, and canonical identities prevent repeats. Missing provenance or failed resolution is reported as a source error rather than empty healthy discovery.
+
+When structured/labeled extraction fails on a single detail page, an application extractor port invokes the configured agents combo. Source text is bounded, no model tools are enabled, and returned string fields must occur in the fetched source after Unicode/whitespace normalization. Salary and work type still normalize locally; nonexistent fields become null and fabricated identity rejects the record. This lexical evidence check is not a proof of semantic correctness; the model is instructed to distinguish the advertised position from navigation and related jobs. Candidate facts are never updated.

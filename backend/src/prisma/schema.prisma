@@ -68,6 +68,7 @@ model User {
   resumes         Resume[]
   feedbacks       JobFeedback[]
   conversations   Conversation[]
+  discoveryRuns   JobDiscoveryRun[]
 
   @@map("users")
 }
@@ -122,17 +123,22 @@ model Job {
   id              String    @id @default(uuid())
   title           String
   company         String
-  location        String
-  workType        WorkType
-  experienceLevel String
+  location        String?
+  workType        WorkType?
+  experienceLevel String?
   salaryMin       Float?
   salaryMax       Float?
-  description     String
+  description     String?
   requiredSkills  Json
   preferredSkills Json?
   source          String
-  sourceUrl       String?
-  postedAt        DateTime  @default(now())
+  sourceUrl       String?   @unique
+  discoveryKey    String?   @unique
+  currency        String?
+  salaryPeriod    String?
+  postedAt        DateTime?
+  discoveredAt    DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -220,4 +226,24 @@ model GuestChatSession {
 
   @@index([expiresAt])
   @@map("guest_chat_sessions")
+}
+
+model JobDiscoveryRun {
+  id             String   @id @default(uuid())
+  userId         String
+  conversationId String
+  contextVersion Int
+  searchIntent   Json
+  status         String
+  sourceReports  Json
+  jobIds         Json
+  resultCount    Int      @default(0)
+  startedAt      DateTime @default(now())
+  completedAt    DateTime?
+  errorCode      String?
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, contextVersion])
+  @@index([userId, startedAt])
+  @@map("job_discovery_runs")
 }
