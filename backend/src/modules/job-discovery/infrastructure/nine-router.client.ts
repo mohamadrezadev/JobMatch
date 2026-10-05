@@ -55,7 +55,8 @@ export class NineRouterClient {
       }
     if (!this.config.fetchModel)
       throw new DiscoveryError("JOB_FETCH_PROVIDER_UNAVAILABLE", 503);
-    // Provider-side redirects cannot be secured by checking only the returned URL.
+    // Attestation includes the provider's documented private-address/redirect
+    // enforcement; our preflight and final-source checks are separate controls.
     if (!this.config.fetchPolicyVerified)
       throw new DiscoveryError("JOB_FETCH_SECURITY_UNVERIFIED", 503);
   }
@@ -110,6 +111,19 @@ export class NineRouterClient {
     const finalUrl = data.final_url;
     if (finalUrl != null && typeof finalUrl !== "string")
       throw new DiscoveryError("PROVIDER_RESPONSE_INVALID", 502);
+    if (this.config.fetchModel === "tinyfish") {
+      // The reviewed policy belongs to TinyFish, not arbitrary combo fallbacks.
+      if (data.provider !== "tinyfish")
+        throw new DiscoveryError("FETCH_PROVIDER_MISMATCH", 502);
+      if (typeof finalUrl !== "string" || !finalUrl.trim())
+        throw new DiscoveryError("FETCH_PROVENANCE_MISSING", 502);
+      try {
+        if (!["http:", "https:"].includes(new URL(finalUrl).protocol))
+          throw new Error("invalid final protocol");
+      } catch {
+        throw new DiscoveryError("PROVIDER_RESPONSE_INVALID", 502);
+      }
+    }
     const links = Array.isArray(data.links)
       ? data.links.slice(0, 1000).flatMap((link: unknown) => {
           if (typeof link === "string") return [link];

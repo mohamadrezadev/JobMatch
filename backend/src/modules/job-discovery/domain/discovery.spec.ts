@@ -10,6 +10,19 @@ const html = (overrides = {}) =>
   `<script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting", title: "Backend Node.js Developer", hiringOrganization: { name: "شرکت تست" }, jobLocationType: "TELECOMMUTE", jobLocation: { address: { addressLocality: "تهران" } }, baseSalary: { currency: "IRR", value: { minValue: 250000000, maxValue: 350000000, unitText: "MONTH" } }, skills: ["Node.js"], description: "<p>توسعه بک‌اند</p>", ...overrides })}</script>`;
 const url = "https://jobvision.ir/jobs/1";
 describe("Iranian job rules", () => {
+  it("matches Persian dotnet job titles for a .NET request", () => {
+    const job = normalizeJob(
+      html({ title: "برنامه نویس دات نت", jobLocationType: "ON_SITE" }),
+      url,
+    )!;
+    expect(
+      filterAndRank([job], {
+        targetRoles: [".NET Developer"],
+        workTypes: ["OnSite"],
+        locations: ["Tehran"],
+      }),
+    ).toHaveLength(1);
+  });
   it("builds one site query without making preferred skills a hard condition", () => {
     const query = queryFor("jobinja.ir", {
       targetRoles: ["Backend Developer"],

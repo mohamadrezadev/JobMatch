@@ -42,6 +42,15 @@ describe("Chat application", () => {
     expect(result.readyForSearch).toBe(false);
     expect(result.message).toContain("نقش");
   });
+  it("makes the reported .NET request ready for automatic frontend discovery", async () => {
+    const result = await service.send(
+      "owner",
+      "یه کار بکند دات نت با حقوق 60 تومن حضوری تهران",
+    );
+    expect(result.readyForSearch).toBe(true);
+    expect(result.intent).toBe("JOB_SEARCH");
+    expect(result.searchContext.minimumSalary).toBe(60000000);
+  });
   it("does not write when ownership lookup fails", async () => {
     repository.get.mockRejectedValue(new ConversationNotFound());
     await expect(

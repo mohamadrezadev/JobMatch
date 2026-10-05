@@ -2,6 +2,7 @@ import {
   DiscoveryError,
   deduplicate,
   filterAndRank,
+  SourceReport,
 } from "../domain/discovery";
 import { DiscoveryRepository, JobDiscoveryProvider } from "./discovery.ports";
 
@@ -38,8 +39,10 @@ export class JobDiscoveryService {
       };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.totalTimeout);
+    let sources: SourceReport[] | undefined;
     try {
       const result = await this.provider.discover(intent, controller.signal);
+      sources = result.sources;
       const jobs = deduplicate(filterAndRank(result.jobs, intent));
       const partial = result.sources.some((source) => Boolean(source.error));
       if (
@@ -58,7 +61,8 @@ export class JobDiscoveryService {
         error instanceof DiscoveryError
           ? error
           : new DiscoveryError("JOB_DISCOVERY_UNAVAILABLE", 503);
-      await this.repository.fail(run.id, failure.code);
+      if (sources) await this.repository.fail(run.id, failure.code, sources);
+      else await this.repository.fail(run.id, failure.code);
       throw failure;
     } finally {
       clearTimeout(timer);

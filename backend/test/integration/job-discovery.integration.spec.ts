@@ -298,4 +298,27 @@ databaseSuite("Job discovery HTTP + mock 9Router + real PostgreSQL", () => {
       await prisma.conversation.findUnique({ where: { id: conversationId } }),
     ).not.toBeNull();
   });
+  it("retains safe source diagnostics with a failed run", async () => {
+    const run = await prisma.jobDiscoveryRun.findFirstOrThrow({
+      where: { conversationId, status: "FAILED" },
+    });
+    const sources = [
+      {
+        source: "jobvision.ir",
+        query: "site:jobvision.ir Backend",
+        found: 2,
+        accepted: 0,
+        rejected: 2,
+        error: "TIMEOUT",
+      },
+    ];
+    await new PrismaDiscoveryRepository(prisma).fail(
+      run.id,
+      "JOB_DISCOVERY_UNAVAILABLE",
+      sources,
+    );
+    expect(
+      await prisma.jobDiscoveryRun.findUnique({ where: { id: run.id } }),
+    ).toMatchObject({ status: "FAILED", sourceReports: sources });
+  });
 });

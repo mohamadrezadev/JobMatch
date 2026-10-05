@@ -99,6 +99,11 @@ describe("Discovery use case", () => {
     await expect(service.search("owner", "conversation")).rejects.toMatchObject(
       { code: "JOB_DISCOVERY_UNAVAILABLE" },
     );
+    expect(repository.fail).toHaveBeenLastCalledWith(
+      "run",
+      "JOB_DISCOVERY_UNAVAILABLE",
+      [expect.objectContaining({ error: "SEARCH_FAILED" })],
+    );
   });
   it("cancels provider work at the total deadline and records a safe failure", async () => {
     provider.discover.mockImplementation(

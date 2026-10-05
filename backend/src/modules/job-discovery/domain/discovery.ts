@@ -91,6 +91,15 @@ export function filterAndRank(jobs: DiscoveredJob[], intent: JobSearchIntent) {
     "node.js developer": ["node.js", "nodejs", "node js", "نود"],
     "react developer": ["react", "ری اکت", "ری‌اکت"],
     "python developer": ["python", "پایتون"],
+    ".net developer": [
+      ".net",
+      "dotnet",
+      "dot net",
+      "دات نت",
+      "دات‌نت",
+      "سی شارپ",
+      "c#",
+    ],
   };
   const has = (text: string, term: string) =>
     normalizeText(text).includes(normalizeText(term));

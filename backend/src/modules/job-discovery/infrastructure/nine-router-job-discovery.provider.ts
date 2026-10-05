@@ -9,8 +9,9 @@ import {
   queryFor,
   canonicalUrl,
   DiscoveryError,
+  normalizeText,
 } from "../domain/discovery";
-import { normalizeJob } from "../domain/job-normalizer";
+import { normalizeJob, explicitlyClosed } from "../domain/job-normalizer";
 import { NineRouterClient } from "./nine-router.client";
 import { SourceValidator } from "./source-validator";
 
@@ -86,8 +87,8 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
               }
               await this.validator.validate(page.url, signal);
               if (!jobDetailUrl(page.url)) {
+                const details: string[] = [];
                 for (const link of page.links ?? []) {
-                  if (queue.length + fetches >= 10) break;
                   let target: string;
                   try {
                     target = canonicalUrl(new URL(link, page.url).toString());
@@ -98,12 +99,44 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                     this.validator.allowed(target) &&
                     jobDetailUrl(target) &&
                     !seen.has(target) &&
-                    !queue.includes(target)
+                    !details.includes(target)
                   ) {
-                    queue.push(target);
+                    details.push(target);
                     report.found++;
                   }
                 }
+                // Search can fill all ten slots with listing/grounding links.
+                // Prefer discovered details so those listings cannot consume the
+                // whole budget without ever visiting an advertised position.
+                const terms = intent.targetRoles
+                  .flatMap((role) =>
+                    normalizeText(role)
+                      .replace(/developer/g, "")
+                      .split(/[\s.]+/),
+                  )
+                  .filter((term) => term.length > 2);
+                const relevance = (target: string) => {
+                  let text = target;
+                  try {
+                    text = decodeURIComponent(new URL(target).pathname);
+                  } catch {
+                    /* Use original text. */
+                  }
+                  return terms.filter((term) =>
+                    normalizeText(text).includes(term),
+                  ).length;
+                };
+                details.sort((a, b) => relevance(b) - relevance(a));
+                const remaining = 10 - fetches;
+                queue.splice(
+                  0,
+                  queue.length,
+                  ...[...new Set([...details, ...queue])].slice(0, remaining),
+                );
+                report.rejected++;
+                continue;
+              }
+              if (explicitlyClosed(page.content)) {
                 report.rejected++;
                 continue;
               }

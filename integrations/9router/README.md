@@ -22,7 +22,7 @@ Rollback, while stopped, uses the same command with `--restore`. npm reinstall/u
 node integrations/9router/verify-npm-0.5.95.cjs backend/.cache/9router-npm-0.5.95/package
 ```
 
-That verification exercises the compiled TinyFish function with mocked upstream responses and the install/check/restore/version/hash behavior against temporary files. It makes no redirect-enforcement claims. On 2026-10-05 the user reported applying this patch and restarting their Windows npm server. Subsequent remote probes confirmed explicit final_url, listing links and a real Jobinja detail page. Full application discovery and provider/egress enforcement remain pending.
+That verification exercises the compiled TinyFish function with mocked upstream responses and the install/check/restore/version/hash behavior against temporary files. It makes no redirect-enforcement claims. On 2026-10-05 the user reported applying this patch and restarting their Windows npm server. Subsequent remote probes confirmed explicit final_url, listing links and a real Jobinja detail page. Local application discovery subsequently passed with real partial results using the reviewed native TinyFish private-address/redirect contract. See `openspec/changes/JM-BACK-0004-iranian-job-discovery/live-acceptance.md` for evidence and remaining production trust limits.
 
 ## Source checkout
 

@@ -4,6 +4,48 @@ import { emptyContext } from "./conversation";
 describe("Career Copilot extraction", () => {
   const extractor = new ContextService();
   const run = (message: string) => extractor.extract(message, emptyContext());
+  it("recognizes the reported Persian backend/dotnet request and all its constraints", () => {
+    const { context, intent } = run(
+      "یه کار بکند دات نت با حقوق 60 تومن حضوری تهران",
+    );
+    expect(intent).toBe("JOB_SEARCH");
+    expect(context.searchContext).toMatchObject({
+      targetRoles: ["Backend Developer", ".NET Developer"],
+      preferredSkills: [".NET"],
+      minimumSalary: 60000000,
+      currency: "TOMAN",
+      workTypes: ["OnSite"],
+      locations: ["Tehran"],
+    });
+    expect(context.candidateFacts.skills).toEqual([]);
+  });
+  it.each(["دات‌نت", "داتنت", "dotnet", "dot net", "ASP.NET"])(
+    "recognizes %s while leaving candidate facts unchanged",
+    (name) => {
+      expect(
+        run(`کار ${name} می‌خوام`).context.searchContext.targetRoles,
+      ).toContain(".NET Developer");
+      expect(run(`کار ${name} می‌خوام`).context.candidateFacts.skills).toEqual(
+        [],
+      );
+    },
+  );
+  it("retains a salary preference beside a comma-delimited denied skill without inventing a search exclusion", () => {
+    const previous = run("کار بک‌اند Node دورکار می‌خوام").context;
+    const { context, intent } = extractor.extract(
+      "حداقل ۲۰ میلیون تومان می‌خوام، Python بلد نیستم",
+      previous,
+    );
+    expect(intent).toBe("UPDATE_SEARCH");
+    expect(context.searchContext.minimumSalary).toBe(20000000);
+    expect(context.searchContext.excludedSkills ?? []).toEqual([]);
+    expect(context.candidateFacts.deniedSkills).toContain("Python");
+    expect(context.candidateFacts.skills).not.toContain("Python");
+    expect(
+      extractor.extract("حداقل ۲۰ میلیون، بدون Python", context).context
+        .searchContext.excludedSkills,
+    ).toContain("Python");
+  });
   it("extracts the full Persian PRD example", () => {
     const { context, intent } = run(
       "یه کار بک‌اند Node دورکار بالای ۱۵ تومن می‌خوام.",

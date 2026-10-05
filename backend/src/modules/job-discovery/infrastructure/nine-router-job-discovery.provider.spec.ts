@@ -80,6 +80,22 @@ describe("Search/fetch boundary", () => {
     expect(client.search).not.toHaveBeenCalled();
     expect(client.fetch).not.toHaveBeenCalled();
   });
+  it("does not let model fallback revive an explicitly closed posting", async () => {
+    client.search.mockResolvedValue(["https://jobinja.ir/jobs/1"]);
+    client.fetch.mockResolvedValue({
+      url: "https://jobinja.ir/jobs/1",
+      content: "این آگهی بسته شده است\n" + html,
+    });
+    const extractor = { extract: jest.fn() };
+    const result = await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobinja.ir"],
+      extractor,
+    ).discover({ targetRoles: ["Backend Developer"] }, signal);
+    expect(result.jobs).toEqual([]);
+    expect(extractor.extract).not.toHaveBeenCalled();
+  });
   it("uses a verified final URL for Google bridges and follows only permitted detail links", async () => {
     const bridge =
       "https://vertexaisearch.cloud.google.com/grounding-api-redirect/token";
@@ -160,5 +176,34 @@ describe("Search/fetch boundary", () => {
     ).discover({ targetRoles: ["Backend Developer"] }, signal);
     expect(client.fetch).toHaveBeenCalledTimes(10);
     expect(result.jobs).toHaveLength(9);
+  });
+  it("visits role-related details even when search fills all ten slots with listings", async () => {
+    client.search.mockResolvedValue(
+      Array.from({ length: 10 }, (_, i) => `https://jobinja.ir/jobs?page=${i}`),
+    );
+    client.fetch.mockImplementation(async (url: string) => ({
+      url,
+      content: url.includes("/jobs/") ? html : "Job list",
+      finalUrlVerified: true,
+      links: [
+        "/jobs/sales",
+        "/jobs/node-developer",
+        "/jobs/backend-developer",
+        "/jobs/other",
+      ],
+    }));
+    const result = await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobinja.ir"],
+    ).discover(
+      { targetRoles: ["Node.js Developer", "Backend Developer"] },
+      signal,
+    );
+    expect(client.fetch.mock.calls[1][0]).toBe(
+      "https://jobinja.ir/jobs/node-developer",
+    );
+    expect(result.jobs.length).toBeGreaterThan(0);
+    expect(client.fetch.mock.calls.length).toBeLessThanOrEqual(10);
   });
 });

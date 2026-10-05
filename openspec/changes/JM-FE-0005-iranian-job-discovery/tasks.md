@@ -7,5 +7,6 @@
 
 ## Verification
 - [x] Run frontend unit tests.
-- [x] Verify guest/authenticated discovery and mobile cards in Chrome (success cards use browser fixtures; real provider-unavailable path verified).
+- [x] Verify deterministic guest/error/partial/empty/mobile UI states with explicit fixtures and real payload validation.
+- [x] Verify actual authenticated chat/search/cards/source links/history restoration/mobile with remote provider data, without discovery fixtures.
 - [x] Run production build and strict OpenSpec validation.

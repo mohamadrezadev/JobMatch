@@ -254,10 +254,15 @@ export class PrismaDiscoveryRepository extends DiscoveryRepository {
       }
     }
   }
-  async fail(runId: string, code: string) {
+  async fail(runId: string, code: string, sources?: SourceReport[]) {
     await this.prisma.jobDiscoveryRun.update({
       where: { id: runId },
-      data: { status: "FAILED", errorCode: code, completedAt: new Date() },
+      data: {
+        status: "FAILED",
+        errorCode: code,
+        completedAt: new Date(),
+        ...(sources ? { sourceReports: json(sources) } : {}),
+      },
     });
   }
 }

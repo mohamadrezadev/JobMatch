@@ -16,6 +16,8 @@
 - [x] Add evidence-checked agents extraction for stripped detail-page Markdown.
 - [x] Prepare and locally verify the TinyFish metadata patch for 9Router.
 - [x] Supply the npm 0.5.95 patch, confirm user installation/restart, and verify live final_url/links/detail-page responses.
-- [ ] Establish remote provider/egress enforcement before enabling the fetch policy flag.
+- [x] Review native TinyFish public-address/redirect contract and live router private-target rejection; enforce actual provider identity and final provenance.
 - [x] Run final build and strict OpenSpec validation.
-- [ ] Validate live four-source searches after secure provider configuration.
+- [x] Validate real chat/four-source queries/persistence/cards/history/mobile with explicit partial failures.
+- [x] Fix detail starvation, Jobinja Markdown extraction, compound salary/profile turns and failed-run diagnostics.
+- [ ] Establish healthy retrieval from every source and independently enforced project-domain restrictions on all intermediate remote hops for stricter production deployments.

@@ -13,7 +13,7 @@ const result = {
 };
 describe("Discovery client", () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     useDiscoveryStore.getState().reset();
   });
   it("automatically searches once, even under repeated activation", async () => {
@@ -61,5 +61,33 @@ describe("Discovery client", () => {
     await request;
     expect(useDiscoveryStore.getState().result).toBeNull();
     expect(useDiscoveryStore.getState().pending).toBe(false);
+  });
+  it("restores a persisted run when the POST response is lost instead of reporting failure", async () => {
+    (apiClient.post as jest.Mock).mockRejectedValue({ code: "ERR_NETWORK" });
+    (apiClient.get as jest.Mock).mockResolvedValue({ data: { data: result } });
+    await useDiscoveryStore.getState().activate("key", "owned", true);
+    expect(useDiscoveryStore.getState().result).toEqual(result);
+    expect(useDiscoveryStore.getState().error).toBeNull();
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(apiClient.get).toHaveBeenCalledWith("/api/job-discovery/conversations/owned/latest", { timeout: 10000 });
+  });
+  it("distinguishes a lost connection when no result has been persisted", async () => {
+    (apiClient.post as jest.Mock).mockRejectedValue({ code: "ECONNABORTED" });
+    (apiClient.get as jest.Mock).mockResolvedValue({ data: { data: null } });
+    await useDiscoveryStore.getState().activate("key", "owned", true);
+    expect(useDiscoveryStore.getState().result).toBeNull();
+    expect(useDiscoveryStore.getState().error).toContain("ارتباط با سرور");
+  });
+  it("ignores recovery that finishes after switching accounts", async () => {
+    (apiClient.post as jest.Mock).mockRejectedValue({ code: "ERR_NETWORK" });
+    let finish!: (value: unknown) => void;
+    (apiClient.get as jest.Mock).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const pending = useDiscoveryStore.getState().activate("key", "owned", true);
+    await Promise.resolve();
+    useDiscoveryStore.getState().reset();
+    finish({ data: { data: result } });
+    await pending;
+    expect(useDiscoveryStore.getState().result).toBeNull();
+    expect(useDiscoveryStore.getState().error).toBeNull();
   });
 });

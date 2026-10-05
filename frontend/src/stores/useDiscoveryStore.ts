@@ -30,12 +30,19 @@ function result(value: unknown): DiscoveryResult | null {
   return value as DiscoveryResult;
 }
 function message(failure: unknown) {
+  const transport = failure as { response?: unknown; code?: string };
+  if (!transport.response && ["ERR_NETWORK", "ECONNABORTED", "ETIMEDOUT"].includes(transport.code ?? ""))
+    return "ارتباط با سرور هنگام دریافت نتیجه قطع شد. گفتگو محفوظ است؛ برای دریافت نتیجه دوباره تلاش کن.";
   const code = (
     failure as { response?: { data?: { error?: { code?: string } } } }
   ).response?.data?.error?.code;
   return (
     (
       {
+        JOB_DISCOVERY_UNAVAILABLE:
+          "منابع جستجو در این نوبت پاسخ قابل استفاده ندادند. گفتگو محفوظ است؛ کمی بعد دوباره تلاش کن.",
+        SEARCH_ROLE_REQUIRED: "ابتدا در گفتگو بگو دنبال چه شغلی هستی.",
+        CONVERSATION_NOT_FOUND: "این گفتگو در حساب فعلی پیدا نشد. گفتگو را از تاریخچه دوباره باز کن.",
         JOB_SEARCH_PROVIDER_UNAVAILABLE:
           "سرویس جستجوی آگهی هنوز فعال نشده است. ترجیحاتت در گفتگو محفوظ است.",
         JOB_FETCH_PROVIDER_UNAVAILABLE: "سرویس خواندن آگهی‌ها هنوز آماده نیست.",
@@ -106,6 +113,24 @@ export const useDiscoveryStore = create<State>((set, get) => ({
       if (generation === get().generation)
         set({ result: result(response.data.data) });
     } catch (error) {
+      if (generation !== get().generation) return;
+      // A disconnected response does not imply that the server failed to save
+      // the run. Restore the same owned context before reporting a transport error.
+      const status = (error as { response?: { status?: number } }).response?.status;
+      if (status == null || status >= 500 || status === 409) {
+        try {
+          const restored = await apiClient.get<{ data: DiscoveryResult | null }>(
+            `/api/job-discovery/conversations/${conversationId}/latest`,
+            { timeout: 10000 },
+          );
+          if (generation !== get().generation) return;
+          const saved = result(restored.data.data);
+          if (saved) {
+            set({ result: saved, error: null });
+            return;
+          }
+        } catch { /* Keep the original failure when recovery is unavailable. */ }
+      }
       if (generation === get().generation) set({ error: message(error) });
     } finally {
       if (generation === get().generation) set({ pending: false });

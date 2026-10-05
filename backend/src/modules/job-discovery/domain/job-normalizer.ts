@@ -1,6 +1,12 @@
 import { DiscoveredJob } from "./discovery";
 
 type ObjectValue = Record<string, unknown>;
+export function explicitlyClosed(content: string) {
+  const main = content.split(/^###\s+مشاغل مشابه/m)[0];
+  return /این (?:آگهی|فرصت شغلی).{0,40}(?:بسته|منقضی|غیرفعال)|مهلت ارسال رزومه.{0,30}پایان/.test(
+    main,
+  );
+}
 const object = (value: unknown): ObjectValue =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as ObjectValue)
@@ -27,7 +33,7 @@ export function workType(value: unknown): DiscoveredJob["workType"] {
   if (typeof value !== "string") return null;
   if (/هیبرید|نیمه[\s‌-]*حضوری|hybrid/i.test(value)) return "Hybrid";
   if (/telecommute|remote|دورکار|ریموت/i.test(value)) return "Remote";
-  if (/on[\s-]*site|حضوری/i.test(value)) return "OnSite";
+  if (/on[\s_-]*site|حضوری/i.test(value)) return "OnSite";
   return null;
 }
 export function parseSalary(
@@ -140,7 +146,8 @@ export function normalizeJob(
     }
   }
   const posting = candidates[0];
-  if (!posting) return labeledJob(content, url);
+  if (!posting)
+    return jobinjaMarkdown(content, url) ?? labeledJob(content, url);
   const title = plainText(posting.title),
     company = plainText(object(posting.hiringOrganization).name);
   if (!title || !company || title.length > 300 || company.length > 300)
@@ -182,6 +189,64 @@ export function normalizeJob(
     source: new URL(url).hostname.replace(/^www\./, ""),
     sourceUrl: url,
     publishedAt: date,
+  };
+}
+// TinyFish's Jobinja Markdown retains the primary company/title and labeled
+// facts. Keep this bounded to that source and stop before related vacancies.
+function jobinjaMarkdown(content: string, url: string): DiscoveredJob | null {
+  const target = new URL(url);
+  if (
+    !/^(?:www\.)?jobinja\.ir$/.test(target.hostname) ||
+    !/^\/companies\/[^/]+\/jobs\/[^/]+/.test(target.pathname)
+  )
+    return null;
+  const main = content.split(/^###\s+مشاغل مشابه/m)[0];
+  if (explicitlyClosed(main)) return null;
+  const titleMatch = /^#\s+(.+)$/m.exec(main);
+  if (!titleMatch) return null;
+  const company = plainText(
+    /^##\s+(.+)$/m.exec(main.slice(0, titleMatch.index))?.[1],
+  );
+  const title = plainText(titleMatch[1]);
+  if (
+    !company ||
+    !title ||
+    company.length > 300 ||
+    title.length > 300 ||
+    !/^####\s+شرح موقعیت شغلی\s*$/m.test(main)
+  )
+    return null;
+  const section = (label: string) => {
+    const match = new RegExp(
+      `^(?:\\*\\s+)?####\\s+${label}\\s*\\n([\\s\\S]*?)(?=^(?:\\*\\s+)?#{1,6}\\s|^---|$(?![\\s\\S]))`,
+      "m",
+    ).exec(main);
+    return match?.[1].trim() ?? null;
+  };
+  const salary = parseSalary(plainText(section("حقوق")));
+  if (
+    salary.salaryMin &&
+    salary.salaryMax &&
+    salary.salaryMax < salary.salaryMin
+  )
+    return null;
+  return {
+    title,
+    company,
+    location: plainText(section("موقعیت مکانی")),
+    workType: workType(section("نوع همکاری")),
+    experienceLevel: plainText(section("حداقل سابقه کار")),
+    ...salary,
+    description: plainText(section("شرح موقعیت شغلی")),
+    requiredSkills: (section("مهارت[‌ ]?های مورد نیاز") ?? "")
+      .split(/\r?\n/)
+      .map((line) => plainText(line.trim()))
+      .filter((line): line is string => Boolean(line) && line!.length <= 100)
+      .slice(0, 50),
+    preferredSkills: [],
+    source: "jobinja.ir",
+    sourceUrl: url,
+    publishedAt: null,
   };
 }
 // Conservative fallback: only explicit labeled values, never a search snippet or generated answer.

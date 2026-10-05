@@ -4,6 +4,8 @@ PRD-002 is implemented in `backend/src/modules/job-discovery` and frontend chang
 
 ## Delivery status
 
+Update after live acceptance: the reviewed native TinyFish policy is enabled in the private local environment. Real chat/search/persistence and Chrome result-card/history/mobile checks now pass with partial source failures. See [live acceptance and policy limits](live-acceptance.md). The example configuration remains disabled, and healthy retrieval from every site is still not established. Historical probe details below describe the earlier delivery checkpoint.
+
 Implemented: authenticated, owner-scoped discovery from server-owned chat context; bounded four-source search; source/DNS/redirect validation; Google grounding continuation; listing-to-detail traversal; structured normalization and evidence-checked agents extraction; filtering, deduplication, persisted runs, cache and restoration; result cards and partial/empty/error states. Guests retain five messages and receive a registration/login invitation before discovery. Ordinary job pages do not silently substitute design fixtures for live data.
 
 The migration is deployed locally. Backend is configured at http://localhost:3100 and frontend at http://localhost:3001. Credentials are stored only in ignored environment files.

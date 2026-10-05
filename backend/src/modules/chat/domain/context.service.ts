@@ -1,7 +1,7 @@
 import { ChatIntent, ConversationContext } from "./conversation";
 
 const roles: Array<[RegExp, string, string?]> = [
-  [/بک\s*اند|back\s*end/i, "Backend Developer"],
+  [/بک\s*ا?ند|back\s*end/i, "Backend Developer"],
   [/فرانت\s*اند|front\s*end/i, "Frontend Developer"],
   [/فول\s*استک|full\s*stack/i, "Full Stack Developer"],
   [/(^|[^a-z])node(?:\.js)?(?=$|[^a-z])/i, "Node.js Developer", "Node.js"],
@@ -10,7 +10,11 @@ const roles: Array<[RegExp, string, string?]> = [
   [/(^|[^a-z])java(?=$|[^a-z])/i, "Java Developer", "Java"],
   [/(^|[^a-z])typescript(?=$|[^a-z])/i, "TypeScript Developer", "TypeScript"],
   [/(^|[^a-z])javascript(?=$|[^a-z])/i, "JavaScript Developer", "JavaScript"],
-  [/\.net|سی\s*شارپ|c#/i, ".NET Developer", ".NET"],
+  [
+    /\.net(?=$|[^a-z])|(?:^|[^a-z])dot\s*net(?=$|[^a-z])|دات\s*نت|سی\s*شارپ|c#/i,
+    ".NET Developer",
+    ".NET",
+  ],
   [/طراح\s*(?:رابط|تجربه)|ux\s*designer|ui\s*designer/i, "UI/UX Designer"],
 ];
 export function normalize(text: string): string {
@@ -56,7 +60,16 @@ export class ContextService {
     let preference = false;
     let fact = false;
     let roleChanged = false;
-    const clauses = text.split(/\s+و\s+|[؛;!?\n]|\.(?=\s|$)/).filter(Boolean);
+    const clauses = text
+      .split(/\s+و\s+|[؛;!?\n]|\.(?=\s|$)/)
+      // Keep skill lists intact, but separate salary preferences from a
+      // comma-delimited profile statement so one cannot hide the other.
+      .flatMap((clause) =>
+        /حداقل|حقوق|salary|minimum/.test(clause)
+          ? clause.split(/[,،]/)
+          : [clause],
+      )
+      .filter(Boolean);
     for (const clause of clauses) {
       if (factPattern.test(clause)) {
         fact = true;

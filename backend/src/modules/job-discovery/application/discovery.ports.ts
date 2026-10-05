@@ -42,7 +42,11 @@ export abstract class DiscoveryRepository {
     sources: SourceReport[],
     partial: boolean,
   ): Promise<DiscoveryResult>;
-  abstract fail(runId: string, code: string): Promise<void>;
+  abstract fail(
+    runId: string,
+    code: string,
+    sources?: SourceReport[],
+  ): Promise<void>;
   abstract latest(
     userId: string,
     conversationId: string,

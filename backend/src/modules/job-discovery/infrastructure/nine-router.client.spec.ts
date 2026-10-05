@@ -8,6 +8,7 @@ describe("Installed 9Router web API contract", () => {
     malformed = false;
   let finalUrl: string | undefined,
     links: unknown[] = [];
+  let provider = "tinyfish";
   const requests: Array<{ path: string; body: any; authorization?: string }> =
     [];
   beforeAll(async () => {
@@ -37,6 +38,7 @@ describe("Installed 9Router web API contract", () => {
                       ],
                 }
               : {
+                  provider,
                   url: body.url,
                   final_url: finalUrl,
                   links,
@@ -65,6 +67,7 @@ describe("Installed 9Router web API contract", () => {
     malformed = false;
     finalUrl = undefined;
     links = [];
+    provider = "tinyfish";
   });
   it("uses bare search results and content.text, sends the key only to the router", async () => {
     const client = new NineRouterClient(config),
@@ -132,6 +135,7 @@ describe("Installed 9Router web API contract", () => {
     expect(requests[0].path).toBe("/v1/search");
   });
   it("requests tinyfish markdown with a bounded response and reads content.text", async () => {
+    finalUrl = "https://jobvision.ir/jobs/1";
     const page = await new NineRouterClient({
       ...config,
       fetchModel: "tinyfish",
@@ -144,6 +148,28 @@ describe("Installed 9Router web API contract", () => {
       include_links: true,
     });
     expect(page.content).toBe("<h1>Source page</h1>");
+  });
+  it.each([undefined, "", " "])(
+    "requires final provenance for every TinyFish page (%s)",
+    async (value) => {
+      finalUrl = value;
+      await expect(
+        new NineRouterClient({ ...config, fetchModel: "tinyfish" }).fetch(
+          "https://jobinja.ir/jobs/1",
+          new AbortController().signal,
+        ),
+      ).rejects.toMatchObject({ code: "FETCH_PROVENANCE_MISSING" });
+    },
+  );
+  it("rejects a different actual provider instead of trusting the TinyFish attestation", async () => {
+    provider = "other-provider";
+    finalUrl = "https://jobinja.ir/jobs/1";
+    await expect(
+      new NineRouterClient({ ...config, fetchModel: "tinyfish" }).fetch(
+        finalUrl,
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ code: "FETCH_PROVIDER_MISMATCH" });
   });
   it("preserves an explicit final URL and link metadata without claiming an echoed URL is final", async () => {
     finalUrl = "https://jobinja.ir/jobs/1";
