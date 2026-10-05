@@ -1,3 +1,27 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body { @apply bg-light-bg font-sans text-slate-800 antialiased dark:bg-dark-bg dark:text-slate-100; }
+  button, a, input, select, textarea { transition: background-color .25s ease, border-color .25s ease, color .25s ease; }
+  button:disabled { cursor: not-allowed; opacity: .5; }
+  :focus-visible { outline: 2px solid #4569F5; outline-offset: 3px; }
+  ::selection { background: #4569F5; color: white; }
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(100,116,139,.25); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,.45); }
+.glass-card { background: rgba(255,255,255,.85); backdrop-filter: blur(12px); border: 1px solid rgba(226,232,240,.9); }
+.dark .glass-card { background: rgba(21,31,50,.7); backdrop-filter: blur(12px); border: 1px solid rgba(35,50,75,.8); }
+.interactive-hover { transition: transform .2s cubic-bezier(.16,1,.3,1), box-shadow .2s cubic-bezier(.16,1,.3,1); }
+.interactive-hover:hover { transform: translateY(-2px); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+@media print {
+  body * { visibility: hidden; }
+  #resume-print-area, #resume-print-area * { visibility: visible; }
+  #resume-print-area { position: absolute; left: 0; top: 0; width: 100%; background: white !important; color: black !important; padding: 0 !important; }
+  .no-print { display: none !important; }
+}

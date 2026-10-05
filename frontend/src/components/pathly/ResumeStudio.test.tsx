@@ -1,0 +1,38 @@
+import '@testing-library/jest-dom';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { ResumeStudio } from './ResumeStudio';
+import { useResumeDraftStore } from '@/stores/useResumeDraftStore';
+import apiClient from '@/lib/api-client';
+let mockAuthenticated = false;
+jest.mock('@/stores/useAuthStore', () => ({ useAuthStore: () => ({ isAuthenticated: mockAuthenticated, user: mockAuthenticated ? { id: 'owner', firstName: 'Actual', lastName: 'User', email: 'actual@example.test' } : null }) }));
+jest.mock('@/lib/api-client', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() } }));
+describe('Resume studio truthfulness and preview', () => {
+  beforeEach(() => { jest.clearAllMocks(); mockAuthenticated = false; useResumeDraftStore.getState().initialize('demo'); });
+  it('updates its preview from explicitly edited fields', () => {
+    render(<ResumeStudio />);
+    fireEvent.change(screen.getByLabelText('نام و نام خانوادگی'), { target: { value: 'نام جدید' } });
+    expect(document.querySelector('#preview-name')).toHaveTextContent('نام جدید');
+    fireEvent.change(screen.getByLabelText('مهارت‌های اصلی (با ویرگول جدا کنید)'), { target: { value: 'React, TypeScript' } });
+    expect(document.querySelector('#preview-skills')).toHaveTextContent('TypeScript');
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+  it('does not transplant sample projects or skills into an authenticated user', async () => {
+    mockAuthenticated = true;
+    (apiClient.get as jest.Mock).mockImplementation((url: string) => Promise.resolve({ data: url.endsWith('/skills') ? [] : { title: 'Backend Developer', bio: 'Actual biography' } }));
+    render(<ResumeStudio />);
+    await waitFor(() => expect(screen.getByLabelText('خلاصه حرفه‌ای')).toHaveValue('Actual biography'));
+    expect(screen.getByLabelText('نام و نام خانوادگی')).toHaveValue('Actual User');
+    expect(screen.getByLabelText('مهارت‌های اصلی (با ویرگول جدا کنید)')).toHaveValue('');
+    expect(document.querySelector('#resume-print-area')).not.toHaveTextContent('پروژه داشبورد مدیریتی');
+    expect(document.querySelector('#resume-print-area')).not.toHaveTextContent('parham@example.com');
+  });
+  it('keeps unavailable profile fields empty rather than inventing credentials', async () => {
+    mockAuthenticated = true;
+    (apiClient.get as jest.Mock).mockRejectedValue(new Error('missing profile'));
+    render(<ResumeStudio />);
+    await waitFor(() => expect(screen.getByLabelText('خلاصه حرفه‌ای')).not.toBeDisabled());
+    expect(screen.getByLabelText('عنوان شغلی')).toHaveValue('');
+    expect(screen.getByLabelText('مهارت‌های اصلی (با ویرگول جدا کنید)')).toHaveValue('');
+    expect(useResumeDraftStore.getState().draft.projects).toBe('');
+  });
+});

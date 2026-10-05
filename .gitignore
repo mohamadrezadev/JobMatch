@@ -48,3 +48,8 @@ backend/prisma/migrations/
 
 # openspec (optional - uncomment if you don't want to track specs in git)
 # openspec/changes/*/archive/
+
+# Local visual comparison artifacts
+frontend/.visual-check/
+
+frontend/.next-dev/

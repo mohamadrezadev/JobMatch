@@ -4,11 +4,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class ResumeService {
-  private openai: OpenAI;
+  private openai?: OpenAI;
 
-  constructor(private readonly prisma: PrismaService) {
-    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   async generate(userId: string, jobId: string) {
     const [job, profile, userSkills] = await Promise.all([
@@ -44,6 +42,7 @@ RULES:
 4. Output JSON: { "summary": "...", "highlights": ["..."], "skills_to_emphasize": ["..."] }`;
 
     try {
+      this.openai ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
       const response = await this.openai.chat.completions.create({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],

@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation';
 import { clsx } from 'clsx';
 
 const links = [
-  { href: '/', label: 'Dashboard', icon: '📊' },
+  { href: '/dashboard', label: 'Dashboard', icon: '📊' },
+  { href: '/chat', label: 'Career Copilot', icon: '💬' },
   { href: '/profile', label: 'Profile', icon: '👤' },
   { href: '/jobs', label: 'Jobs', icon: '💼' },
   { href: '/resume', label: 'Resume', icon: '📄' },

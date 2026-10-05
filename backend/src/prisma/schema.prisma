@@ -67,6 +67,7 @@ model User {
   userSkills      UserSkill[]
   resumes         Resume[]
   feedbacks       JobFeedback[]
+  conversations   Conversation[]
 
   @@map("users")
 }
@@ -175,4 +176,48 @@ model JobFeedback {
   @@index([userId])
   @@index([jobId])
   @@map("job_feedbacks")
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  userId    String
+  status    String   @default("Active")
+  context   Json
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  ConversationMessage[]
+
+  @@index([userId, updatedAt])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  role           String
+  content        String
+  metadata       Json?
+  sequence       Int
+  createdAt      DateTime @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, sequence])
+  @@map("conversation_messages")
+}
+
+model GuestChatSession {
+  tokenHash      String   @id
+  context        Json
+  messages       Json
+  turns          Int      @default(0)
+  claimedBy      String?
+  conversationId String?
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@map("guest_chat_sessions")
 }

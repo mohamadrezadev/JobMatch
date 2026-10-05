@@ -5,14 +5,17 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  UseInterceptors,
   Get,
 } from '@nestjs/common';
+import { TransformInterceptor } from '../../common/interceptors/transform.interceptor';
 import { AuthService } from './auth.service';
 import { RegisterDto, LoginDto, RefreshDto } from './dto/auth.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('api/auth')
+@UseInterceptors(TransformInterceptor)
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

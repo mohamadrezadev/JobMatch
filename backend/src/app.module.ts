@@ -1,6 +1,7 @@
+import { ChatModule } from './modules/chat';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { PrismaService } from './prisma/prisma.service';
+import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { SkillsModule } from './modules/skills/skills.module';
@@ -12,6 +13,7 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    PrismaModule,
     AuthModule,
     UsersModule,
     SkillsModule,
@@ -19,7 +21,8 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
     MatchingModule,
     ResumeModule,
     FeedbackModule,
+    ChatModule,
   ],
-  providers: [PrismaService],
+
 })
 export class AppModule {}

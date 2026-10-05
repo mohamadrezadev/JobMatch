@@ -82,33 +82,33 @@ export default function OnboardingPage() {
     setNewSkill('');
   }
 
-  const stepsLabel = ['Basic Info', 'Experience', 'Skills', 'Preferences'];
+  const stepsLabel = ['اطلاعات پایه', 'تجربه', 'مهارت‌ها', 'ترجیحات'];
 
   return (
     <div className="mx-auto max-w-xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Set up your profile</h1>
-        <p className="mt-1 text-sm text-gray-500">This helps us recommend the right jobs for you.</p>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-white">پروفایل خود را تکمیل کنید</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">این اطلاعات به پیشنهاد فرصت‌های مناسب کمک می‌کند.</p>
       </div>
 
       {/* Progress bar */}
       <div className="flex gap-1">
         {stepsLabel.map((label, i) => (
-          <div key={label} className={`h-1.5 flex-1 rounded-full ${i + 1 <= step ? 'bg-brand-600' : 'bg-gray-200'}`} />
+          <div key={label} className={`h-1.5 flex-1 rounded-full ${i + 1 <= step ? 'bg-brand-600' : 'bg-slate-200 dark:bg-dark-border'}`} />
         ))}
       </div>
-      <p className="text-sm text-gray-500">Step {step} of 4 — {stepsLabel[step - 1]}</p>
+      <p className="text-sm text-slate-500 dark:text-slate-400">Step {step} of 4 — {stepsLabel[step - 1]}</p>
 
       {step === 1 && (
         <Card>
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900">Basic Information</h2>
+            <h2 className="font-semibold text-slate-800 dark:text-white">اطلاعات پایه</h2>
             <div className="grid grid-cols-2 gap-3">
-              <Input label="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-              <Input label="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+              <Input label="نام" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+              <Input label="نام خانوادگی" value={lastName} onChange={(e) => setLastName(e.target.value)} />
             </div>
-            <Input label="Target Role" value={targetRole} onChange={(e) => setTargetRole(e.target.value)} placeholder="e.g., Junior .NET Developer" />
-            <Button className="w-full" onClick={nextStep} disabled={!targetRole}>Next</Button>
+            <Input label="نقش شغلی" value={targetRole} onChange={(e) => setTargetRole(e.target.value)} placeholder="e.g., Junior .NET Developer" />
+            <Button className="w-full" onClick={nextStep} disabled={!targetRole}>ادامه</Button>
           </div>
         </Card>
       )}
@@ -116,20 +116,20 @@ export default function OnboardingPage() {
       {step === 2 && (
         <Card>
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900">Experience</h2>
-            <Input label="Years of Experience" type="number" min="0" max="50" value={experienceYears} onChange={(e) => setExperienceYears(e.target.value)} />
+            <h2 className="font-semibold text-slate-800 dark:text-white">تجربه</h2>
+            <Input label="سال‌های سابقه" type="number" min="0" max="50" value={experienceYears} onChange={(e) => setExperienceYears(e.target.value)} />
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Level</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">سطح</label>
               <div className="flex gap-2">
                 {(['Junior', 'Mid', 'Senior'] as const).map((lvl) => (
                   <button key={lvl} onClick={() => setExperienceLevel(lvl)}
-                    className={`rounded-lg border px-4 py-2 text-sm font-medium ${experienceLevel === lvl ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                    className={`rounded-xl border px-4 py-2 text-sm font-medium ${experienceLevel === lvl ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 dark:border-dark-border text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-dark-card'}`}>
                     {lvl}
                   </button>
                 ))}
               </div>
             </div>
-            <Button className="w-full" onClick={nextStep} disabled={!experienceYears}>Next</Button>
+            <Button className="w-full" onClick={nextStep} disabled={!experienceYears}>ادامه</Button>
           </div>
         </Card>
       )}
@@ -137,16 +137,16 @@ export default function OnboardingPage() {
       {step === 3 && (
         <Card>
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900">Your Skills</h2>
-            <p className="text-sm text-gray-500">Add the technologies and tools you know.</p>
+            <h2 className="font-semibold text-slate-800 dark:text-white">مهارت‌های شما</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">فناوری‌ها و ابزارهایی را که می‌دانید اضافه کنید.</p>
             <div className="flex gap-2">
               <Input value={newSkill} onChange={(e) => setNewSkill(e.target.value)} placeholder="e.g., C#" onKeyDown={(e) => e.key === 'Enter' && addSkill()} />
-              <select value={skillLevel} onChange={(e) => setSkillLevel(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-2 text-sm">
+              <select value={skillLevel} onChange={(e) => setSkillLevel(e.target.value)} className="rounded-xl border border-slate-200 dark:border-dark-border px-2 py-2 text-sm">
                 <option>Beginner</option>
                 <option>Intermediate</option>
                 <option>Advanced</option>
               </select>
-              <Button onClick={addSkill} size="sm">Add</Button>
+              <Button onClick={addSkill} size="sm">افزودن</Button>
             </div>
             <div className="flex flex-wrap gap-2">
               {skills.map((sk, i) => (
@@ -157,7 +157,7 @@ export default function OnboardingPage() {
                 </span>
               ))}
             </div>
-            <Button className="w-full" onClick={nextStep} disabled={skills.length === 0}>Next</Button>
+            <Button className="w-full" onClick={nextStep} disabled={skills.length === 0}>ادامه</Button>
           </div>
         </Card>
       )}
@@ -165,27 +165,27 @@ export default function OnboardingPage() {
       {step === 4 && (
         <Card>
           <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900">Preferences</h2>
-            <Input label="Location preference" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., Tehran or Remote" />
+            <h2 className="font-semibold text-slate-800 dark:text-white">ترجیحات</h2>
+            <Input label="مکان ترجیحی" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g., Tehran or Remote" />
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Work Type</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">نوع همکاری</label>
               <div className="flex gap-2">
                 {(['Remote', 'Hybrid', 'OnSite'] as const).map((wt) => (
                   <button key={wt} onClick={() => setWorkType(wt)}
-                    className={`rounded-lg border px-4 py-2 text-sm font-medium ${workType === wt ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                    className={`rounded-xl border px-4 py-2 text-sm font-medium ${workType === wt ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 dark:border-dark-border text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-dark-card'}`}>
                     {wt}
                   </button>
                 ))}
               </div>
             </div>
-            <Input label="Minimum monthly salary (optional)" type="number" value={desiredSalary} onChange={(e) => setDesiredSalary(e.target.value)} />
-            <Button className="w-full" onClick={nextStep}>Finish & Start Exploring</Button>
+            <Input label="حداقل حقوق ماهانه (اختیاری)" type="number" value={desiredSalary} onChange={(e) => setDesiredSalary(e.target.value)} />
+            <Button className="w-full" onClick={nextStep}>ذخیره و کشف فرصت‌ها</Button>
           </div>
         </Card>
       )}
 
       {step > 1 && (
-        <button onClick={() => setStep((step - 1) as Step)} className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
+        <button onClick={() => setStep((step - 1) as Step)} className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:text-slate-300">بازگشت</button>
       )}
     </div>
   );

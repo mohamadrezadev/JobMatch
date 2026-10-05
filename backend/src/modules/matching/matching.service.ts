@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
-interface MatchBreakdown {
+export interface MatchBreakdown {
   skills: { score: number; matched: string[]; missing: string[] };
   experience: { score: number; details: string };
   location: { score: number; details: string };

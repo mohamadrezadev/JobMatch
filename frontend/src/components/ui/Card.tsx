@@ -1,12 +1,5 @@
 import { clsx } from 'clsx';
 import { HTMLAttributes } from 'react';
-
-interface Props extends HTMLAttributes<HTMLDivElement> {}
-
-export function Card({ className, children, ...props }: Props) {
-  return (
-    <div className={clsx('rounded-xl border border-gray-200 bg-white p-6 shadow-sm', className)} {...props}>
-      {children}
-    </div>
-  );
+export function Card({ className, children, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return <div className={clsx('glass-card rounded-2xl border border-slate-200 bg-light-surface p-6 dark:border-dark-border dark:bg-dark-surface', className)} {...props}>{children}</div>;
 }
