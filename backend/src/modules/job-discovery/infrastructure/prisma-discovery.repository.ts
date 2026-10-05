@@ -254,6 +254,52 @@ export class PrismaDiscoveryRepository extends DiscoveryRepository {
       }
     }
   }
+  async saveCandidate(candidate: DiscoveredJob): Promise<DiscoveryJob> {
+    const { publishedAt, requiredSkills, preferredSkills, ...fields } =
+      candidate;
+    const discoveryKey = createHash("sha256")
+      .update(
+        [candidate.company, candidate.title, candidate.location ?? ""]
+          .map(normalizeText)
+          .join("|"),
+      )
+      .digest("hex");
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            const existing = await tx.job.findFirst({
+              where: {
+                OR: [{ sourceUrl: candidate.sourceUrl }, { discoveryKey }],
+              },
+            });
+            const data = {
+              ...fields,
+              discoveryKey,
+              postedAt: publishedAt ? new Date(publishedAt) : null,
+              lastSeenAt: new Date(),
+              requiredSkills: requiredSkills.map((name) => ({ name })),
+              preferredSkills: preferredSkills.map((name) => ({ name })),
+            };
+            return view(
+              existing
+                ? await tx.job.update({ where: { id: existing.id }, data })
+                : await tx.job.create({ data }),
+            );
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+      } catch (error) {
+        if (
+          attempt < 2 &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          ["P2002", "P2034"].includes(error.code)
+        )
+          continue;
+        throw error;
+      }
+    }
+  }
   async fail(runId: string, code: string, sources?: SourceReport[]) {
     await this.prisma.jobDiscoveryRun.update({
       where: { id: runId },

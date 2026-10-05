@@ -2,6 +2,8 @@ import "@testing-library/jest-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ChatPage from "./page";
 import { useChatStore } from "@/stores/useChatStore";
+import { useChatRunStore } from "@/stores/useChatRunStore";
+import { readRunStream } from "@/lib/chat-run-stream";
 import apiClient from "@/lib/api-client";
 import { guestContinuationKey, guestDraftKey } from "@/lib/guest-chat-client";
 
@@ -17,12 +19,16 @@ jest.mock("@/lib/api-client", () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn() },
 }));
+jest.mock("@/lib/chat-run-stream", () => ({ readRunStream: jest.fn() }));
 describe("Chat composer", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     sessionStorage.clear();
     useChatStore.getState().reset(null);
-    (apiClient.get as jest.Mock).mockImplementation((url: string) => Promise.resolve({ data: { data: url.endsWith('/latest') ? null : [] } }));
+    useChatRunStore.getState().reset();
+    (apiClient.get as jest.Mock).mockImplementation((url: string) =>
+      Promise.resolve({ data: { data: url.endsWith("/latest") ? null : [] } }),
+    );
   });
   it("preserves a draft and displays an error after a failed send", async () => {
     (apiClient.post as jest.Mock).mockRejectedValue(new Error("offline"));
@@ -62,7 +68,9 @@ describe("Chat composer", () => {
                   },
                 ],
               }
-            : url.endsWith('/latest') ? null : [],
+            : url.endsWith("/latest")
+              ? null
+              : [],
         },
       }),
     );
@@ -84,7 +92,7 @@ describe("Chat composer", () => {
       candidateFacts: { skills: [], deniedSkills: [], statements: [] },
     };
     (apiClient.post as jest.Mock).mockResolvedValue({
-      data: { data: { conversationId: "c", message: "ready", ...context } },
+      data: { data: { runId: "r", conversationId: "c" } },
     });
     (apiClient.get as jest.Mock).mockImplementation((url: string) =>
       Promise.resolve({
@@ -96,9 +104,52 @@ describe("Chat composer", () => {
                 context,
                 messages: [{ id: "m", role: "assistant", content: "ready" }],
               }
-            : url.endsWith('/latest') ? null : [],
+            : url.endsWith("/latest")
+              ? null
+              : [],
         },
       }),
+    );
+    (readRunStream as jest.Mock).mockImplementation(
+      async (_id, _after, _signal, receive) => {
+        const conversation = {
+          id: "c",
+          updatedAt: "2026-10-05",
+          context,
+          messages: [
+            {
+              id: "u",
+              role: "user",
+              content: "Backend",
+              sequence: 1,
+              createdAt: "now",
+            },
+            {
+              id: "a",
+              role: "assistant",
+              content: "ready",
+              sequence: 2,
+              createdAt: "now",
+            },
+          ],
+        };
+        receive({
+          id: "e1",
+          runId: "r",
+          sequence: 1,
+          type: "context.updated",
+          timestamp: "now",
+          data: { conversation, userMessageId: "u", assistantMessageId: "a" },
+        });
+        receive({
+          id: "e2",
+          runId: "r",
+          sequence: 2,
+          type: "run.completed",
+          timestamp: "now",
+          data: {},
+        });
+      },
     );
     render(<ChatPage />);
     const input = await screen.findByLabelText("پیام شما");
@@ -106,5 +157,13 @@ describe("Chat composer", () => {
     fireEvent.click(screen.getByRole("button", { name: "ارسال پیام" }));
     await screen.findByText("آماده ارسال به جستجوی فرصت‌ها");
     await waitFor(() => expect(input).toHaveValue(""));
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/api/chat/runs",
+      expect.objectContaining({
+        message: "Backend",
+        requestId: expect.any(String),
+      }),
+      { timeout: 10000 },
+    );
   });
 });

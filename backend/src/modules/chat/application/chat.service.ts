@@ -1,6 +1,6 @@
 import { ConversationRepository } from "./conversation.repository";
 import { ContextService } from "../domain/context.service";
-import { emptyContext } from "../domain/conversation";
+import { emptyContext, ConversationRecord } from "../domain/conversation";
 
 import { chatReply } from "../domain/chat-reply";
 
@@ -15,7 +15,12 @@ export class ChatService {
   get(userId: string, id: string) {
     return this.repository.get(userId, id);
   }
-  async send(userId: string, message: string, conversationId?: string) {
+  async send(
+    userId: string,
+    message: string,
+    conversationId?: string,
+    committed?: (conversation: ConversationRecord) => void,
+  ) {
     const previous = conversationId
       ? await this.repository.get(userId, conversationId)
       : undefined;
@@ -33,6 +38,7 @@ export class ChatService {
       reply,
       intent: result.intent,
     });
+    committed?.(saved);
     return {
       conversationId: saved.id,
       message: reply,

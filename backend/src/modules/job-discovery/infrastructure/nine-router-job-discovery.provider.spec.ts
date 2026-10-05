@@ -40,6 +40,25 @@ describe("Search/fetch boundary", () => {
     expect(result.jobs).toHaveLength(2);
     expect(result.sources[0].rejected).toBe(2);
   });
+  it("reports real source progress and counts acceptance after the application filter", async () => {
+    client.search.mockResolvedValue(["https://jobvision.ir/jobs/1"]);
+    const progress = {
+      sourceStarted: jest.fn(async () => undefined),
+      sourceCompleted: jest.fn(async () => undefined),
+      jobCandidate: jest.fn(async () => false),
+    };
+    const result = await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+    ).discover({ targetRoles: ["Backend Developer"] }, signal, progress);
+    expect(progress.sourceStarted).toHaveBeenCalledWith("jobvision.ir");
+    expect(progress.jobCandidate).toHaveBeenCalledTimes(1);
+    expect(progress.sourceCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({ accepted: 0, rejected: 1 }),
+    );
+    expect(result.sources[0].accepted).toBe(0);
+  });
   it("rejects a foreign redirect before the provider fetch", async () => {
     client.search.mockResolvedValue(["https://jobvision.ir/job/1"]);
     jest

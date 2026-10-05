@@ -16,6 +16,7 @@ import { JobDiscoveryController } from "./presentation/job-discovery.controller"
 import { AgentsJobContentExtractor } from "./infrastructure/agents-job-content.extractor";
 
 @Module({
+  exports: [JobDiscoveryService],
   imports: [PrismaModule],
   controllers: [JobDiscoveryController],
   providers: [
@@ -40,7 +41,9 @@ import { AgentsJobContentExtractor } from "./infrastructure/agents-job-content.e
             baseUrl:
               config.get("NINEROUTER_BASE_URL") ?? "http://127.0.0.1:20128",
             apiKey: config.get("NINEROUTER_API_KEY"),
-            searchModel: config.get("NINEROUTER_SEARCH_MODEL"),
+            searchModel:
+              config.get<string>("NINEROUTER_SEARCH_MODEL")?.trim() ||
+              "search-combo",
             fetchModel: config.get("NINEROUTER_FETCH_MODEL"),
             fetchPolicyVerified:
               config.get("NINEROUTER_FETCH_POLICY_VERIFIED") === "true",

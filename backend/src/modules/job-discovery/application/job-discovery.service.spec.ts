@@ -7,6 +7,7 @@ describe("Discovery use case", () => {
     service: JobDiscoveryService;
   beforeEach(() => {
     repository = {
+      saveCandidate: jest.fn(),
       context: jest.fn(),
       begin: jest.fn(),
       complete: jest.fn(),

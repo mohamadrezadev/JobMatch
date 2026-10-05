@@ -2,6 +2,7 @@ import { JobSearchIntent } from "../../chat/domain/conversation";
 import {
   JobDiscoveryProvider,
   JobContentExtractor,
+  DiscoveryProgress,
 } from "../application/discovery.ports";
 import {
   DiscoveredJob,
@@ -24,7 +25,11 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
   ) {
     super();
   }
-  async discover(intent: JobSearchIntent, signal: AbortSignal) {
+  async discover(
+    intent: JobSearchIntent,
+    signal: AbortSignal,
+    progress?: DiscoveryProgress,
+  ) {
     await this.client.ready(signal);
     const jobs: DiscoveredJob[] = [],
       reports: SourceReport[] = [];
@@ -39,6 +44,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
             rejected: 0,
           };
         reports.push(report);
+        await progress?.sourceStarted(source);
         try {
           const urls = [
             ...new Set(await this.client.search(query, source, signal)),
@@ -152,7 +158,9 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                 continue;
               }
               jobs.push(job);
-              report.accepted++;
+              if (!progress || (await progress.jobCandidate(job)))
+                report.accepted++;
+              else report.rejected++;
             } catch (error) {
               report.rejected++;
               report.error = signal.aborted
@@ -165,6 +173,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
         } catch {
           report.error = signal.aborted ? "TIMEOUT" : "SEARCH_FAILED";
         }
+        await progress?.sourceCompleted({ ...report });
       }),
     );
     return {

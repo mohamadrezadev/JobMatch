@@ -1,14 +1,22 @@
 import { JobSearchIntent } from "../../chat/domain/conversation";
 import {
   DiscoveredJob,
+  DiscoveryJob,
   DiscoveryResult,
   SourceReport,
 } from "../domain/discovery";
+
+export interface DiscoveryProgress {
+  sourceStarted(source: string): Promise<void>;
+  sourceCompleted(report: SourceReport): Promise<void>;
+  jobCandidate(job: DiscoveredJob): Promise<boolean>;
+}
 
 export abstract class JobDiscoveryProvider {
   abstract discover(
     intent: JobSearchIntent,
     signal: AbortSignal,
+    progress?: DiscoveryProgress,
   ): Promise<{ jobs: DiscoveredJob[]; sources: SourceReport[] }>;
 }
 export abstract class JobContentExtractor {
@@ -26,6 +34,10 @@ export interface DiscoveryRun {
   cached: boolean;
 }
 export abstract class DiscoveryRepository {
+  // Only the live path uses incremental persistence; legacy implementations stay compatible.
+  saveCandidate(_job: DiscoveredJob): Promise<DiscoveryJob> {
+    throw new Error("Incremental persistence not implemented");
+  }
   abstract context(
     userId: string,
     conversationId: string,

@@ -26,6 +26,9 @@ class Chat {
   }
 }
 (async () => {
+  if (process.env.JOBMATCH_LEGACY_DISCOVERY !== "true") {
+    return require("./verify-live-chat.cjs");
+  }
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   try {
     const context = await browser.newContext({

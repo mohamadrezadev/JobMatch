@@ -11,6 +11,7 @@ import { GuestConversationRepository } from "./application/guest-conversation.re
 import { PrismaGuestConversationRepository } from "./infrastructure/prisma-guest-conversation.repository";
 
 @Module({
+  exports: [ChatService],
   imports: [PrismaModule],
   controllers: [ChatController, GuestChatController],
   providers: [

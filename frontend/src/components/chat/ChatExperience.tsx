@@ -1,13 +1,16 @@
 "use client";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { GuestChat } from "@/components/chat/GuestChat";
 import apiClient from "@/lib/api-client";
 import { guestContinuationKey, guestDraftKey } from "@/lib/guest-chat-client";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { Icon } from "@/components/pathly/Icon";
-import { DiscoveryPanel } from './DiscoveryPanel';
-import { useDiscoveryStore } from '@/stores/useDiscoveryStore';
+import { DiscoveryPanel } from "./DiscoveryPanel";
+import { useDiscoveryStore } from "@/stores/useDiscoveryStore";
+import { useChatRunStore } from "@/stores/useChatRunStore";
+import { RunActivity } from "./RunActivity";
+import { runFinished } from "@/types/chat-run";
 
 const workLabels = { Remote: "دورکار", Hybrid: "هیبرید", OnSite: "حضوری" };
 export default function ChatExperience() {
@@ -20,6 +23,7 @@ function AuthenticatedChat() {
   const [claimRetry, setClaimRetry] = useState(0);
   const { user, isAuthenticated } = useAuthStore();
   const chat = useChatStore();
+  const runs = useChatRunStore();
   const [hydrated, setHydrated] = useState(false);
   const [draft, setDraft] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -33,6 +37,7 @@ function AuthenticatedChat() {
     const owner = isAuthenticated ? (user?.id ?? null) : null;
     useChatStore.getState().reset(owner);
     useDiscoveryStore.getState().reset();
+    useChatRunStore.getState().reset();
     setDraft(
       new URLSearchParams(window.location.search).get("prompt") ??
         sessionStorage.getItem(guestDraftKey) ??
@@ -78,16 +83,25 @@ function AuthenticatedChat() {
     return () => {
       cancelled = true;
       useChatStore.getState().reset(null);
+      useChatRunStore.getState().reset();
     };
   }, [hydrated, isAuthenticated, user?.id, claimRetry]);
+  useEffect(() => {
+    const id = chat.active?.id;
+    if (
+      id &&
+      !useChatRunStore.getState().runs.some((run) => run.conversationId === id)
+    )
+      void useChatRunStore.getState().restore(id);
+  }, [chat.active?.id]);
   useEffect(() => {
     if (chat.active?.messages.length)
       end.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
   }, [chat.active?.messages.length]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (claiming || claimError) return;
-    if (await chat.send(draft.trim())) {
+    if (claiming || claimError || runs.pending) return;
+    if (await runs.start(draft.trim(), chat.active?.id)) {
       setDraft("");
       sessionStorage.removeItem(guestDraftKey);
     }
@@ -128,9 +142,12 @@ function AuthenticatedChat() {
           </button>
           <button
             aria-label="گفتگوی جدید"
-            disabled={chat.pending || claiming || Boolean(claimError)}
+            disabled={
+              chat.pending || runs.pending || claiming || Boolean(claimError)
+            }
             onClick={() => {
               chat.startNew();
+              runs.reset();
               setDraft("");
             }}
             className="rounded-lg bg-slate-100 px-3 py-1 text-xs text-slate-400 transition-all hover:text-rose-500 dark:bg-dark-card"
@@ -146,10 +163,13 @@ function AuthenticatedChat() {
           <select
             id="conversation"
             value={chat.active?.id ?? ""}
-            disabled={chat.pending || claiming || Boolean(claimError)}
+            disabled={
+              chat.pending || runs.pending || claiming || Boolean(claimError)
+            }
             onChange={(event) => {
               if (event.target.value) {
                 setDraft("");
+                runs.reset();
                 void chat.select(event.target.value);
               }
             }}
@@ -164,7 +184,9 @@ function AuthenticatedChat() {
             ))}
           </select>
           <button
-            disabled={chat.pending || claiming || Boolean(claimError)}
+            disabled={
+              chat.pending || runs.pending || claiming || Boolean(claimError)
+            }
             onClick={() => void chat.loadList()}
             className="text-brand-500"
           >
@@ -193,6 +215,33 @@ function AuthenticatedChat() {
           {chat.error}
         </p>
       )}
+      {runs.error && (
+        <p
+          role="alert"
+          className="bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400"
+        >
+          {runs.error}
+        </p>
+      )}
+      {(runs.connection === "reconnecting" ||
+        runs.connection === "disconnected") && (
+        <div
+          role="status"
+          className="p-3 text-xs text-amber-600 dark:text-amber-400"
+        >
+          {runs.connection === "reconnecting" ? (
+            "در حال اتصال دوباره… نتایج حفظ شده‌اند."
+          ) : (
+            <button
+              type="button"
+              onClick={runs.reconnect}
+              className="underline"
+            >
+              برقراری دوباره اتصال
+            </button>
+          )}
+        </div>
+      )}
       <div
         role="log"
         aria-label="پیام‌های گفتگو"
@@ -218,26 +267,65 @@ function AuthenticatedChat() {
             </div>
           </div>
         )}
-        {chat.active?.messages.map((message) => (
-          <article
-            key={message.id}
-            aria-label={message.role === "user" ? "پیام شما" : "پاسخ دستیار"}
-            className={`flex animate-slide-in items-start gap-3 ${message.role === "user" ? "justify-end" : ""}`}
+        {chat.active?.messages
+          .filter(
+            (message) =>
+              !runs.runs.some(
+                (run) =>
+                  run.assistantMessageId === message.id &&
+                  !runFinished(run.status),
+              ),
+          )
+          .map((message) => (
+            <Fragment key={message.id}>
+              <article
+                key={message.id}
+                aria-label={
+                  message.role === "user" ? "پیام شما" : "پاسخ دستیار"
+                }
+                className={`flex animate-slide-in items-start gap-3 ${message.role === "user" ? "justify-end" : ""}`}
+              >
+                {message.role !== "user" && (
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-500/20 text-xs text-brand-500">
+                    <Icon name="robot" />
+                  </div>
+                )}
+                <div
+                  className={`max-w-[80%] rounded-2xl p-3 ${message.role === "user" ? "rounded-tl-none bg-brand-500 text-white" : "rounded-tr-none border border-slate-200/50 bg-slate-100 text-slate-800 dark:border-dark-border dark:bg-dark-card dark:text-slate-200"}`}
+                >
+                  <p dir="auto" className="whitespace-pre-wrap break-words">
+                    {message.content}
+                  </p>
+                </div>
+              </article>
+              {runs.runs
+                .filter((run) => run.userMessageId === message.id)
+                .map((run) => (
+                  <RunActivity key={run.runId} run={run} />
+                ))}
+            </Fragment>
+          ))}
+        {runs.pendingMessage && (
+          <p
+            dir="auto"
+            className="mr-auto max-w-[80%] rounded-2xl bg-brand-500 p-3 text-white"
           >
-            {message.role !== "user" && (
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-500/20 text-xs text-brand-500">
-                <Icon name="robot" />
-              </div>
-            )}
-            <div
-              className={`max-w-[80%] rounded-2xl p-3 ${message.role === "user" ? "rounded-tl-none bg-brand-500 text-white" : "rounded-tr-none border border-slate-200/50 bg-slate-100 text-slate-800 dark:border-dark-border dark:bg-dark-card dark:text-slate-200"}`}
-            >
-              <p dir="auto" className="whitespace-pre-wrap break-words">
-                {message.content}
+            {runs.pendingMessage}
+          </p>
+        )}
+        {runs.runs
+          .filter((run) => !run.userMessageId)
+          .map((run) => (
+            <div key={run.runId} className="space-y-3">
+              <p
+                dir="auto"
+                className="mr-auto max-w-[80%] rounded-2xl bg-brand-500 p-3 text-white"
+              >
+                {run.message}
               </p>
+              <RunActivity run={run} />
             </div>
-          </article>
-        ))}
+          ))}
         {chat.pending && (
           <p role="status" className="text-brand-500">
             در حال پردازش…
@@ -266,11 +354,23 @@ function AuthenticatedChat() {
             {context.minimumSalary !== undefined && (
               <span>{context.minimumSalary.toLocaleString("fa-IR")} تومان</span>
             )}
-            <span>نتایج جستجوی منابع ایرانی پایین گفتگو نمایش داده می‌شود.</span>
+            <span>
+              نتایج جستجوی منابع ایرانی پایین گفتگو نمایش داده می‌شود.
+            </span>
           </div>
         </details>
       )}
-      {ready && chat.active && context && <DiscoveryPanel conversationId={chat.active.id} context={context} trigger={chat.discoveryTrigger} />}
+      {ready &&
+        chat.active &&
+        context &&
+        !runs.runs.length &&
+        !runs.pending && (
+          <DiscoveryPanel
+            conversationId={chat.active.id}
+            context={context}
+            trigger={0}
+          />
+        )}
       <div className="shrink-0 border-t border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/50">
         <form onSubmit={submit} className="flex gap-2">
           <label htmlFor="chat-input" className="sr-only">
@@ -282,7 +382,9 @@ function AuthenticatedChat() {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             maxLength={4000}
-            disabled={chat.pending || claiming || Boolean(claimError)}
+            disabled={
+              chat.pending || runs.pending || claiming || Boolean(claimError)
+            }
             placeholder="پیام خود را بنویسید (مثلاً: فقط موقعیت‌های دورکاری با حقوق بالای ۲۲ میلیون)..."
             className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-800 focus:border-brand-500 focus:outline-none dark:border-dark-border dark:bg-dark-surface dark:text-white"
           />
@@ -290,7 +392,11 @@ function AuthenticatedChat() {
             type="submit"
             aria-label="ارسال پیام"
             disabled={
-              chat.pending || claiming || Boolean(claimError) || !draft.trim()
+              chat.pending ||
+              runs.pending ||
+              claiming ||
+              Boolean(claimError) ||
+              !draft.trim()
             }
             className="flex items-center gap-2 rounded-xl bg-brand-500 px-5 py-3 text-xs font-bold text-white shadow-lg shadow-brand-500/20 transition-all hover:bg-brand-600"
           >
