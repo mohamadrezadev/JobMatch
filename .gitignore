@@ -25,6 +25,8 @@ frontend/coverage/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*
+!.env.example
 
 # logs
 *.log
