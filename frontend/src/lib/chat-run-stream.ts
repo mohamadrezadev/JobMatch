@@ -36,7 +36,7 @@ export async function readRunStream(
   try {
     const token = localStorage.getItem("accessToken");
     const base = (
-      process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"
+      process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000"
     ).replace(/\/$/, "");
     const response = await fetch(`${base}/api/chat/runs/${runId}/events`, {
       headers: {

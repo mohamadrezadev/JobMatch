@@ -10,12 +10,11 @@ Keep command, arguments and lifecycle hooks empty in the portal. The presets use
 
 Backend environment: `NODE_ENV=production`, `PORT=3000`, `HOST=0.0.0.0`, the database's internal `DATABASE_URL`, separate random `JWT_SECRET` and `REFRESH_TOKEN_SECRET`, and `CORS_ORIGIN` equal to the frontend origin. Configure the application's model and discovery provider variables in the portal. `RESUME_PDF_DIR=/app/storage/resumes` needs a persistent disk mounted at that path to retain generated PDFs across container replacements.
 
-Frontend environment: `PORT=3000`, `HOST=0.0.0.0`, `NEXT_PUBLIC_API_URL` equal to the public backend origin, `NEXT_TELEMETRY_DISABLED=1`, and `NPM_CONFIG_PRODUCTION=false` so build dependencies are installed. Changing `NEXT_PUBLIC_API_URL` requires a new frontend build.
+Frontend environment: `PORT=3000`, `HOST=0.0.0.0`, `NEXT_TELEMETRY_DISABLED=1`, and `NPM_CONFIG_PRODUCTION=false` so build dependencies are installed. For this project's private API proxy, set `NEXT_PUBLIC_API_URL` to an explicitly empty string and `API_INTERNAL_URL=http://backend-xfz-service`. Browser requests and the chat event stream then use the frontend origin; Next.js forwards `/api/*` to the backend service over the private network. The proxy allows 120 seconds for long searches. The backend needs no public domain in this configuration.
 
-Current temporary public origins:
+Alternatively, omit `API_INTERNAL_URL` and set `NEXT_PUBLIC_API_URL` to a stable public backend origin. Changing either variable requires a new frontend build. Keep backend `CORS_ORIGIN` aligned with the frontend's actual origin.
 
-- Frontend: https://frontapp-vtx-jobmatchapp.runflare.cloud
-- Backend: https://backend-61j-jobmatchapp.runflare.cloud
+Runflare temporary domains expire after one hour and are limited to three activations per service per day. Obtain the current address from the portal; do not reuse an old temporary address. A stable domain is required for persistent public access. See [Runflare temporary domain documentation](https://docs.runflare.com/general/temporary-domain/). A free DNS subdomain with configurable A and TXT records may be used if it passes Runflare's domain verification; for example [DuckDNS](https://www.duckdns.org/spec.jsp).
 
 ## Deploy
 

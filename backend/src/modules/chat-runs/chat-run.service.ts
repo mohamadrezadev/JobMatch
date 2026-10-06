@@ -263,7 +263,9 @@ export class ChatRunService implements OnModuleDestroy {
         });
         reply = result.jobs.length
           ? `${result.jobs.length.toLocaleString("fa-IR")} موقعیت مرتبط پیدا شد.`
-          : "آگهی معتبری با شرایط فعلی پیدا نشد.";
+          : partial
+            ? "بررسی منابع کامل نشد؛ هنوز آگهی منطبق با شرایط شما تأیید نشده است. می‌توانید دوباره جستجو کنید."
+            : "آگهی معتبری با شرایط فعلی پیدا نشد.";
         if (partial)
           reply += " بعضی منابع کامل بررسی نشدند؛ نتایج موجود حفظ شده‌اند.";
         await this.publish(run.id, "tool.completed", { tool: "job_search" });

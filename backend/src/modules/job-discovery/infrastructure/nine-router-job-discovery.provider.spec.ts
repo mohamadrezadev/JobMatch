@@ -5,6 +5,10 @@ import {
 import { NineRouterClient } from "./nine-router.client";
 import { SourceValidator } from "./source-validator";
 import { DiscoveryError } from "../domain/discovery";
+import { SourceDiscoveryBudget } from "../application/discovery.ports";
+import { AgentSearchService } from "../application/agent-search.service";
+import { AgentPlannerService } from "../application/agent-planner.service";
+import { GuestDiscoveryService } from "../../chat/application/guest-discovery.service";
 
 const html =
   '<script type="application/ld+json">{"@type":"JobPosting","title":"Backend Developer","hiringOrganization":{"name":"X"}}</script>';
@@ -38,6 +42,147 @@ describe("Search/fetch boundary", () => {
     jest
       .spyOn(validator, "validate")
       .mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+  });
+  it("recovers an actual normalized HR posting through guest discovery's second query", async () => {
+    client.search
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(["https://jobvision.ir/jobs/123"]);
+    client.fetch.mockImplementation(async (url: string) => ({
+      url,
+      content:
+        '<script type="application/ld+json">{"@type":"JobPosting","title":"HR Specialist","hiringOrganization":{"name":"HR Company"},"jobLocationType":"TELECOMMUTE"}</script>',
+    }));
+    const provider = new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+    );
+    const agent = new AgentSearchService(provider, new AgentPlannerService(), [
+      "jobvision.ir",
+    ]);
+    const result = await new GuestDiscoveryService(agent).search({
+      targetRoles: ["کارشناس منابع انسانی"],
+      requestedCount: 1,
+      workTypes: ["Remote"],
+    });
+    expect(client.search).toHaveBeenCalledTimes(2);
+    expect(client.search.mock.calls[0][0]).toContain(
+      '("کارشناس منابع انسانی")',
+    );
+    expect(client.search.mock.calls[0][0]).not.toContain("HR Specialist");
+    expect(client.search.mock.calls[1][0]).toContain('("HR Specialist")');
+    expect(client.fetch).toHaveBeenCalledTimes(1);
+    expect(result.jobs).toEqual([
+      expect.objectContaining({
+        title: "HR Specialist",
+        company: "HR Company",
+        workType: "Remote",
+        sourceUrl: "https://jobvision.ir/jobs/123",
+      }),
+    ]);
+    expect(result.sources).toEqual([
+      expect.objectContaining({
+        source: "jobvision.ir",
+        found: 1,
+        accepted: 1,
+        rejected: 0,
+        failed: false,
+      }),
+    ]);
+    expect(result.partial).toBe(false);
+  });
+  it("shares the ten-page budget and visited URLs across equivalent attempts", async () => {
+    const provider = new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+    );
+    const budgets = new Map<string, SourceDiscoveryBudget>([
+      ["jobvision.ir", { remainingFetches: 10, seenUrls: new Set() }],
+    ]);
+    client.search
+      .mockResolvedValueOnce(["https://jobvision.ir/jobs/1"])
+      .mockResolvedValueOnce(
+        Array.from(
+          { length: 10 },
+          (_, i) => `https://jobvision.ir/jobs/${i + 1}`,
+        ),
+      );
+    const intent = {
+      targetRoles: ["Backend Developer"],
+      requiredSkills: [".NET"],
+    };
+    await provider.discover(intent, signal, undefined, {
+      sources: ["jobvision.ir"],
+      queryTitles: ["Backend Developer"],
+      budgets,
+    });
+    expect(client.search.mock.calls[0][0]).toContain(
+      '("Backend Developer") .NET',
+    );
+    expect(client.search.mock.calls[0][0]).not.toContain("برنامه نویس");
+    await provider.discover(intent, signal, undefined, {
+      sources: ["jobvision.ir"],
+      queryTitles: ["برنامه نویس بک اند"],
+      budgets,
+    });
+    expect(client.fetch).toHaveBeenCalledTimes(10);
+    expect(
+      client.fetch.mock.calls.filter(
+        (call) => call[0] === "https://jobvision.ir/jobs/1",
+      ),
+    ).toHaveLength(1);
+    expect(budgets.get("jobvision.ir")!.remainingFetches).toBe(0);
+    await provider.discover(intent, signal, undefined, {
+      sources: ["jobvision.ir"],
+      budgets,
+    });
+    expect(client.search).toHaveBeenCalledTimes(2);
+    expect(client.fetch).toHaveBeenCalledTimes(10);
+  });
+  it("reserves a shared fetch budget before parallel work and counts failures", async () => {
+    const budgets = new Map<string, SourceDiscoveryBudget>([
+      ["jobvision.ir", { remainingFetches: 2, seenUrls: new Set() }],
+    ]);
+    client.search.mockResolvedValue(
+      Array.from({ length: 10 }, (_, i) => `https://jobvision.ir/jobs/${i}`),
+    );
+    client.fetch.mockRejectedValue(new Error("failed fetch"));
+    await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+    ).discover({ targetRoles: ["Backend Developer"] }, signal, undefined, {
+      sources: ["jobvision.ir"],
+      budgets,
+    });
+    expect(client.fetch).toHaveBeenCalledTimes(2);
+    expect(budgets.get("jobvision.ir")!.remainingFetches).toBe(0);
+  });
+  it("does not refetch a detail reached by a different redirect in a later round", async () => {
+    const budgets = new Map<string, SourceDiscoveryBudget>([
+      ["jobvision.ir", { remainingFetches: 10, seenUrls: new Set() }],
+    ]);
+    client.search
+      .mockResolvedValueOnce(["https://jobvision.ir/jobs/1"])
+      .mockResolvedValueOnce(["https://jobvision.ir/jobs/bridge"]);
+    jest
+      .spyOn(validator, "resolve")
+      .mockResolvedValue("https://jobvision.ir/jobs/1");
+    const provider = new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+    );
+    for (let i = 0; i < 2; i++)
+      await provider.discover(
+        { targetRoles: ["Backend Developer"] },
+        signal,
+        undefined,
+        { sources: ["jobvision.ir"], budgets },
+      );
+    expect(client.fetch).toHaveBeenCalledTimes(1);
+    expect(budgets.get("jobvision.ir")!.remainingFetches).toBe(9);
   });
   it("searches only the requested batch and rejects unknown or repeated sources", async () => {
     client.search.mockResolvedValue([]);
@@ -194,6 +339,70 @@ describe("Search/fetch boundary", () => {
     ).rejects.toMatchObject({ code: "JOB_SEARCH_PROVIDER_UNAVAILABLE" });
     expect(client.search).not.toHaveBeenCalled();
     expect(client.fetch).not.toHaveBeenCalled();
+  });
+  it("fetches three details concurrently and publishes fast jobs before a slow detail finishes", async () => {
+    client.search.mockResolvedValue(
+      [1, 2, 3, 4].map((id) => `https://jobvision.ir/jobs/${id}`),
+    );
+    const releases = new Map<string, () => void>();
+    client.fetch.mockImplementation(
+      (url: string) =>
+        new Promise((resolve) => {
+          releases.set(url, () => resolve({ url, content: html }));
+        }),
+    );
+    const progress = {
+      sourceStarted: jest.fn(async () => undefined),
+      sourceCompleted: jest.fn(async () => undefined),
+      jobCandidate: jest.fn(async () => true),
+    };
+    const pending = new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+    ).discover({ targetRoles: ["Backend Developer"] }, signal, progress);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(releases.size).toBe(3);
+    releases.get("https://jobvision.ir/jobs/2")!();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(progress.jobCandidate).toHaveBeenCalledTimes(1);
+    expect(progress.sourceCompleted).not.toHaveBeenCalled();
+    releases.get("https://jobvision.ir/jobs/1")!();
+    releases.get("https://jobvision.ir/jobs/3")!();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(releases.size).toBe(4);
+    releases.get("https://jobvision.ir/jobs/4")!();
+    expect((await pending).jobs).toHaveLength(4);
+  });
+  it("keeps completed jobs and stops starting details after cancellation", async () => {
+    const controller = new AbortController();
+    client.search.mockResolvedValue(
+      Array.from({ length: 10 }, (_, id) => `https://jobvision.ir/jobs/${id}`),
+    );
+    client.fetch.mockImplementation(async (url: string) => ({
+      url,
+      content: html,
+    }));
+    const progress = {
+      sourceStarted: jest.fn(async () => undefined),
+      sourceCompleted: jest.fn(async () => undefined),
+      jobCandidate: jest.fn(async () => {
+        controller.abort();
+        return true;
+      }),
+    };
+    const result = await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+    ).discover(
+      { targetRoles: ["Backend Developer"] },
+      controller.signal,
+      progress,
+    );
+    expect(result.jobs.length).toBeGreaterThan(0);
+    expect(client.fetch.mock.calls.length).toBeLessThanOrEqual(3);
+    expect(result.sources[0].error).toBe("TIMEOUT");
   });
   it("does not let model fallback revive an explicitly closed posting", async () => {
     client.search.mockResolvedValue(["https://jobinja.ir/jobs/1"]);

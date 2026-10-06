@@ -6,8 +6,14 @@ import {
   filterAndRank,
   salaryConfirmed,
   SourceReport,
+  queryRoundsFor,
 } from "../domain/discovery";
-import { DiscoveryProgress, JobDiscoveryProvider } from "./discovery.ports";
+import {
+  DiscoveryProgress,
+  JobDiscoveryProvider,
+  MAX_SOURCE_FETCHES,
+  SourceDiscoveryBudget,
+} from "./discovery.ports";
 import {
   abortable,
   AGENT_SOURCES,
@@ -34,6 +40,35 @@ export class AgentSearchService {
     deadline = Date.now() + 60000,
     rankingExperienceLevel?: string,
   ) {
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    signal.addEventListener("abort", cancel, { once: true });
+    if (signal.aborted || Date.now() >= deadline) cancel();
+    const timer = setTimeout(cancel, Math.max(1, deadline - Date.now()));
+    try {
+      return await this.runSearch(
+        intent,
+        controller.signal,
+        progress,
+        publish,
+        deadline,
+        rankingExperienceLevel,
+      );
+    } finally {
+      controller.abort();
+      clearTimeout(timer);
+      signal.removeEventListener("abort", cancel);
+    }
+  }
+
+  private async runSearch(
+    intent: JobSearchIntent,
+    signal: AbortSignal,
+    progress: DiscoveryProgress | undefined,
+    publish: Publish | undefined,
+    deadline: number,
+    rankingExperienceLevel?: string,
+  ) {
     // Only aggregates go to the planner. Page content and provider diagnostics stay private.
     const goal: JobSearchIntent = JSON.parse(JSON.stringify(intent));
     const targetValidJobs = targetJobCount(goal);
@@ -42,8 +77,31 @@ export class AgentSearchService {
     );
     const searched = new Set<string>();
     const reports = new Map<string, SourceReport>();
+    const rounds = queryRoundsFor(goal).slice(0, MAX_AGENT_STEPS);
+    const budgets = new Map<string, SourceDiscoveryBudget>(
+      allowed.map((source) => [
+        source,
+        {
+          remainingFetches: MAX_SOURCE_FETCHES,
+          seenUrls: new Set<string>(),
+        },
+      ]),
+    );
+    const permanentFailures = new Set([
+      "JOB_SEARCH_PROVIDER_UNAVAILABLE",
+      "JOB_FETCH_PROVIDER_UNAVAILABLE",
+      "JOB_FETCH_SECURITY_UNVERIFIED",
+    ]);
     let jobs: DiscoveredJob[] = [],
       step = 0;
+    const remainingSources = () =>
+      step < rounds.length
+        ? allowed.filter(
+            (source) =>
+              budgets.get(source)!.remainingFetches > 0 &&
+              !permanentFailures.has(reports.get(source)?.error ?? ""),
+          )
+        : [];
     const validCount = () =>
       jobs.filter((job) => salaryConfirmed(job, goal)).length;
     const observe = (candidates: DiscoveredJob[]) => {
@@ -56,7 +114,7 @@ export class AgentSearchService {
         ? "TIME_LIMIT"
         : validCount() >= targetValidJobs
           ? "ENOUGH_RESULTS"
-          : allowed.every((source) => searched.has(source))
+          : !remainingSources().length
             ? "SOURCES_EXHAUSTED"
             : step >= MAX_AGENT_STEPS
               ? "STEP_LIMIT"
@@ -69,23 +127,41 @@ export class AgentSearchService {
     });
     let reason: FinishReason | undefined;
     while (!(reason = finish())) {
+      const remaining = remainingSources();
+      const queryTitles = rounds[step];
       step++;
-      const remaining = allowed.filter((source) => !searched.has(source));
       await publish?.("agent.planning", { step });
-      let decision: AgentDecision = await this.planner.decide(
-        {
-          goal: JSON.parse(JSON.stringify(goal)),
-          searchedSources: [...searched],
-          remainingSources: remaining,
-          failedSources: [...reports.values()]
-            .filter((report) => report.error)
-            .map((report) => report.source),
-          validJobCount: validCount(),
-          uncertainJobCount: jobs.length - validCount(),
-          step,
-        },
-        signal,
-      );
+      let decision: AgentDecision;
+      try {
+        decision = await abortable(
+          this.planner.decide(
+            {
+              goal: JSON.parse(JSON.stringify(goal)),
+              searchedSources: [...searched],
+              remainingSources: remaining,
+              failedSources: [...reports.values()]
+                .filter((report) => report.error)
+                .map((report) => report.source),
+              validJobCount: validCount(),
+              uncertainJobCount: jobs.length - validCount(),
+              step,
+            },
+            signal,
+          ),
+          signal,
+        );
+      } catch {
+        if (signal.aborted || Date.now() >= deadline) {
+          reason = "TIME_LIMIT";
+          break;
+        }
+        decision = {
+          action: "SEARCH_SOURCES",
+          sources: remaining,
+          reasonCode: step === 1 ? "INITIAL_SEARCH" : "TOO_FEW_RESULTS",
+          plannerMode: "fallback",
+        };
+      }
       if (signal.aborted || Date.now() >= deadline) {
         reason = "TIME_LIMIT";
         break;
@@ -105,20 +181,44 @@ export class AgentSearchService {
           reasonCode: step === 1 ? "INITIAL_SEARCH" : "TOO_FEW_RESULTS",
         };
       await publish?.("agent.decision", { step, ...decision });
+      if (signal.aborted || Date.now() >= deadline) {
+        reason = "TIME_LIMIT";
+        break;
+      }
       const selected = decision.sources;
       selected.forEach((source) => searched.add(source));
       const before = validCount();
+      const previousReports = new Map(reports);
+      const attemptReports = new Map<string, SourceReport>();
+      const applyReport = (report: SourceReport) => {
+        attemptReports.set(report.source, { ...report });
+        const previous = previousReports.get(report.source);
+        const merged = {
+          ...report,
+          found: (previous?.found ?? 0) + report.found,
+          accepted: (previous?.accepted ?? 0) + report.accepted,
+          rejected: (previous?.rejected ?? 0) + report.rejected,
+          ...(previous?.evaluated != null || report.evaluated != null
+            ? {
+                evaluated: (previous?.evaluated ?? 0) + (report.evaluated ?? 0),
+              }
+            : {}),
+        };
+        reports.set(report.source, merged);
+        return merged;
+      };
       // Every active source runs concurrently with the full remaining budget.
       const completedSources = new Set<string>();
       const batch = new AbortController();
       const cancel = () => batch.abort();
       signal.addEventListener("abort", cancel, { once: true });
+      if (signal.aborted) cancel();
       const timer = setTimeout(cancel, Math.max(1, deadline - Date.now()));
       const reportFor = (source: string) => {
-        let report = reports.get(source);
+        let report = attemptReports.get(source);
         if (!report) {
           report = { source, query: "", found: 0, accepted: 0, rejected: 0 };
-          reports.set(source, report);
+          attemptReports.set(source, report);
         }
         return report;
       };
@@ -129,9 +229,9 @@ export class AgentSearchService {
         },
         sourceCompleted: async (report) => {
           if (batch.signal.aborted || !selected.includes(report.source)) return;
-          reports.set(report.source, { ...report });
+          const merged = applyReport(report);
           completedSources.add(report.source);
-          await progress?.sourceCompleted(report);
+          await progress?.sourceCompleted(merged);
         },
         jobCandidate: async (job) => {
           if (batch.signal.aborted || !selected.includes(job.source))
@@ -157,25 +257,24 @@ export class AgentSearchService {
             JSON.parse(JSON.stringify(goal)),
             batch.signal,
             track,
-            { sources: selected },
+            { sources: selected, queryTitles: [...queryTitles], budgets },
           ),
           batch.signal,
         );
         observe(result.jobs.filter((job) => selected.includes(job.source)));
         for (const report of result.sources)
-          if (selected.includes(report.source))
-            reports.set(report.source, { ...report });
+          if (selected.includes(report.source)) applyReport(report);
         for (const source of selected)
-          if (!reports.has(source)) {
-            reports.set(source, {
-              source,
-              query: "",
-              found: 0,
-              accepted: 0,
-              rejected: 0,
+          if (
+            !attemptReports.has(source) ||
+            (!result.sources.some((report) => report.source === source) &&
+              !completedSources.has(source))
+          ) {
+            const merged = applyReport({
+              ...reportFor(source),
               error: "PROVIDER_REPORT_MISSING",
             });
-            await progress?.sourceCompleted(reports.get(source)!);
+            await progress?.sourceCompleted(merged);
           }
       } catch (error) {
         for (const source of selected) {
@@ -187,15 +286,15 @@ export class AgentSearchService {
             found: 0,
             accepted: 0,
             rejected: 0,
-            ...reports.get(source),
+            ...attemptReports.get(source),
             error: batch.signal.aborted
               ? "TIMEOUT"
               : error instanceof DiscoveryError
                 ? error.code
                 : "PROVIDER_FAILURE",
           };
-          reports.set(source, report);
-          await progress?.sourceCompleted(report);
+          const merged = applyReport(report);
+          await progress?.sourceCompleted(merged);
         }
       } finally {
         batch.abort();
@@ -205,7 +304,7 @@ export class AgentSearchService {
       await publish?.("agent.observation", {
         step,
         searchedSources: [...searched],
-        remainingSources: allowed.filter((source) => !searched.has(source)),
+        remainingSources: remainingSources(),
         failedSources: [...reports.values()]
           .filter((report) => report.error)
           .map((report) => report.source),

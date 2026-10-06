@@ -111,6 +111,7 @@ export class PrismaDiscoveryRepository extends DiscoveryRepository {
     if (
       run &&
       ["COMPLETED", "PARTIAL"].includes(run.status) &&
+      (run.status !== "PARTIAL" || (run.jobIds as string[]).length > 0) &&
       Date.now() - run.startedAt.getTime() < 900000
     ) {
       const ids = run.jobIds as string[];

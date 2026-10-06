@@ -1,4 +1,8 @@
 import { JobSearchIntent } from "../../chat/domain/conversation";
+import {
+  equivalentOccupationTitles,
+  matchesOccupationTitle,
+} from "../../jobs/domain/occupation-title";
 
 export const INITIAL_SOURCES = [
   "jobvision.ir",
@@ -70,12 +74,61 @@ export function canonicalUrl(value: string) {
   url.searchParams.sort();
   return url.toString();
 }
-export function queryFor(source: string, intent: JobSearchIntent) {
+export function queryRoundsFor(intent: JobSearchIntent): string[][] {
+  const variants = intent.targetRoles.map((role) => {
+    const seen = new Set<string>();
+    return equivalentOccupationTitles(role)
+      .filter((title) => {
+        const key = normalizeText(title);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 4);
+  });
+  const rounds: string[][] = [];
+  const seenQueries = new Set<string>();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const titles = [
+      ...new Set(
+        variants.flatMap((roles) => (roles[attempt] ? [roles[attempt]] : [])),
+      ),
+    ];
+    const key = titles.map(normalizeText).sort().join("|");
+    if (!titles.length || seenQueries.has(key)) continue;
+    seenQueries.add(key);
+    rounds.push(titles);
+  }
+  return rounds;
+}
+export function queryFor(
+  source: string,
+  intent: JobSearchIntent,
+  queryTitles?: string[],
+) {
   const safe = (value: string) =>
     value
       .replace(/[\r\n"<>]/g, " ")
       .replace(/(?:site|inurl|intitle):\S*/gi, "")
-      .slice(0, 100);
+      .slice(0, 100)
+      .replace(/\s+/g, " ")
+      .trim();
+  const titles: string[] = [];
+  const seen = new Set<string>();
+  for (const role of queryTitles ?? intent.targetRoles) {
+    let added = 0;
+    for (const variant of queryTitles
+      ? [safe(role)]
+      : equivalentOccupationTitles(safe(role))) {
+      const title = safe(variant),
+        key = normalizeText(title);
+      if (!title || seen.has(key)) continue;
+      seen.add(key);
+      titles.push(`"${title}"`);
+      if (++added === 4 || titles.length === 24) break;
+    }
+    if (titles.length === 24) break;
+  }
   const work = intent.workTypes?.map(
     (value) =>
       ({ Remote: "دورکاری Remote", Hybrid: "هیبرید Hybrid", OnSite: "حضوری" })[
@@ -83,7 +136,7 @@ export function queryFor(source: string, intent: JobSearchIntent) {
       ],
   );
   // Preferred skills rank results later; do not make them mandatory search terms.
-  return `site:${source} ${intent.targetRoles.map(safe).join(" OR ")} ${(intent.requiredSkills ?? []).map(safe).join(" ")} استخدام ${(work ?? []).join(" OR ")} ${(intent.locations ?? []).map(safe).join(" ")}`.trim();
+  return `site:${source} (${titles.join(" OR ")}) ${(intent.requiredSkills ?? []).map(safe).join(" ")} استخدام ${(work ?? []).join(" OR ")} ${(intent.locations ?? []).map(safe).join(" ")}`.trim();
 }
 export function normalizedExperience(value: string | null | undefined) {
   const text = normalizeText(value ?? "");
@@ -124,46 +177,11 @@ export function filterAndRank(
     ...(intent.requiredSkills ?? []),
     ...(compoundDotnet ? [".NET"] : []),
   ];
-  const aliases: Record<string, string[]> = {
-    حسابدار: ["حسابدار", "accountant", "accounting"],
-    حسابداری: ["حسابدار", "accountant", "accounting"],
-    accountant: ["حسابدار", "accountant"],
-    "backend developer": ["backend", "back-end", "بک اند", "بک‌اند", "بکاند"],
-    "frontend developer": ["frontend", "front-end", "فرانت"],
-    "node.js developer": ["node.js", "nodejs", "node js", "نود"],
-    "react developer": ["react", "ری اکت", "ری‌اکت"],
-    "python developer": ["python", "پایتون"],
-    ".net developer": [
-      ".net",
-      "dotnet",
-      "dot net",
-      "دات نت",
-      "دات‌نت",
-      "سی شارپ",
-      "c#",
-    ],
-  };
   const has = (text: string, term: string) =>
     normalizeText(text).includes(normalizeText(term));
-  const matchesTitle = (title: string, role: string) => {
-    const known = aliases[normalizeText(role)];
-    if (known) return known.some((term) => has(title, term));
-    // Open titles need all their words, allowing punctuation/word order in an
-    // actual posting without accepting a different job with one shared word.
-    const words = (value: string) =>
-      normalizeText(value)
-        .replace(/[^\p{L}\p{N}+#.]+/gu, " ")
-        .split(/\s+/)
-        .filter(Boolean)
-        // Users name the occupation; postings may use the person/job title.
-        .map((word) => (word === "حسابداری" ? "حسابدار" : word));
-    const terms = words(role);
-    const actual = new Set(words(title));
-    return terms.length > 0 && terms.every((term) => actual.has(term));
-  };
   return jobs
     .filter((job) => {
-      if (!targetRoles.some((role) => matchesTitle(job.title, role)))
+      if (!targetRoles.some((role) => matchesOccupationTitle(job.title, role)))
         return false;
       if (
         intent.workTypes?.length &&
@@ -192,9 +210,9 @@ export function filterAndRank(
       if (
         requiredSkills.some(
           (skill) =>
-            !(skill === ".NET" ? aliases[".net developer"] : [skill]).some(
-              (term) => has(technologyEvidence, term),
-            ),
+            !(skill === ".NET"
+              ? matchesOccupationTitle(technologyEvidence, ".NET Developer")
+              : has(technologyEvidence, skill)),
         )
       )
         return false;

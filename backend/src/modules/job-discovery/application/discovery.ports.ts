@@ -12,12 +12,23 @@ export interface DiscoveryProgress {
   jobCandidate(job: DiscoveredJob): Promise<boolean>;
 }
 
+export const MAX_SOURCE_FETCHES = 10;
+export interface SourceDiscoveryBudget {
+  remainingFetches: number;
+  seenUrls: Set<string>;
+}
+export interface DiscoveryOptions {
+  sources: string[];
+  queryTitles?: string[];
+  budgets?: Map<string, SourceDiscoveryBudget>;
+}
+
 export abstract class JobDiscoveryProvider {
   abstract discover(
     intent: JobSearchIntent,
     signal: AbortSignal,
     progress?: DiscoveryProgress,
-    options?: { sources: string[] },
+    options?: DiscoveryOptions,
   ): Promise<{ jobs: DiscoveredJob[]; sources: SourceReport[] }>;
 }
 export abstract class JobContentExtractor {

@@ -8,6 +8,13 @@ module.exports = (phase) => ({
   outputFileTracingRoot: path.join(__dirname, ".."),
   // Development and production builds must not write to the same cache.
   distDir: phase === PHASE_DEVELOPMENT_SERVER ? ".next-dev" : ".next",
+  experimental: { proxyTimeout: 120000 },
+  async rewrites() {
+    const backend = process.env.API_INTERNAL_URL;
+    return backend
+      ? [{ source: "/api/:path*", destination: `${backend.replace(/\/$/, "")}/api/:path*` }]
+      : [];
+  },
   async headers() {
     return [
       {

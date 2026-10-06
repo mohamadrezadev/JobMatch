@@ -4,6 +4,7 @@ import {
   filterAndRank,
   queryFor,
   salaryConfirmed,
+  queryRoundsFor,
 } from "./discovery";
 import { normalizeJob, parseSalary, workType } from "./job-normalizer";
 
@@ -11,6 +12,114 @@ const html = (overrides = {}) =>
   `<script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting", title: "Backend Node.js Developer", hiringOrganization: { name: "شرکت تست" }, jobLocationType: "TELECOMMUTE", jobLocation: { address: { addressLocality: "تهران" } }, baseSalary: { currency: "IRR", value: { minValue: 250000000, maxValue: 350000000, unitText: "MONTH" } }, skills: ["Node.js"], description: "<p>توسعه بک‌اند</p>", ...overrides })}</script>`;
 const url = "https://jobvision.ir/jobs/1";
 describe("Iranian job rules", () => {
+  it("plans original-first distinct title rounds and preserves unknown occupations", () => {
+    const intent = {
+      targetRoles: ["کارشناس منابع انسانی"],
+      requiredSkills: ["Excel"],
+    };
+    expect(queryRoundsFor(intent)).toEqual([
+      ["کارشناس منابع انسانی"],
+      ["HR Specialist"],
+      ["Human Resources Specialist"],
+    ]);
+    expect(
+      queryRoundsFor({ targetRoles: ["Medical Device Technician"] }),
+    ).toEqual([["Medical Device Technician"]]);
+    const query = queryFor("jobinja.ir", intent, ["HR Specialist"]);
+    expect(query).toContain('("HR Specialist") Excel');
+    expect(query).not.toContain("Human Resources Specialist");
+    expect(intent.targetRoles).toEqual(["کارشناس منابع انسانی"]);
+  });
+  it.each([
+    ["کارشناس منابع انسانی", "HR Specialist", "HR Manager"],
+    ["کارشناس فروش", "Sales Specialist", "Sales Manager"],
+    ["مهندس مکانیک", "Mechanical Engineer", "Civil Engineer"],
+    ["UI/UX Designer", "طراح رابط و تجربه کاربری", "UX Researcher"],
+    ["Java Developer", "برنامه نویس جاوا", "JavaScript Developer"],
+  ])(
+    "shares bilingual query and acceptance rules for %s",
+    (role, title, unrelated) => {
+      const base = normalizeJob(html(), url)!;
+      const intent = { targetRoles: [role], workTypes: ["Remote" as const] };
+      const snapshot = JSON.stringify(intent);
+      const accepted = { ...base, title };
+      expect(queryFor("jobinja.ir", intent)).toContain(title);
+      expect(
+        filterAndRank(
+          [
+            accepted,
+            { ...accepted, title: unrelated },
+            { ...accepted, workType: "OnSite" },
+          ],
+          intent,
+        ),
+      ).toEqual([accepted]);
+      expect(JSON.stringify(intent)).toBe(snapshot);
+    },
+  );
+  it("quotes and bounds title alternatives while keeping requirements outside them", () => {
+    const query = queryFor("jobinja.ir", {
+      targetRoles: ["کارشناس منابع انسانی", "HR Specialist"],
+      requiredSkills: ["Excel"],
+      preferredSkills: ["Python"],
+      locations: ["Tehran"],
+    });
+    expect(query).toContain(
+      'site:jobinja.ir ("کارشناس منابع انسانی" OR "HR Specialist"',
+    );
+    expect(query).toContain(") Excel استخدام");
+    expect(query).toContain("Tehran");
+    expect(query).not.toContain("Python");
+    expect(query.match(/"HR Specialist"/g)).toHaveLength(1);
+    const many = queryFor("jobinja.ir", {
+      targetRoles: Array.from(
+        { length: 50 },
+        (_, i) => `Custom Occupation ${i}`,
+      ),
+    });
+    expect(many.match(/"[^"]+"/g)).toHaveLength(24);
+    expect(
+      queryFor("jobinja.ir", {
+        targetRoles: ['HR Specialist"\nsite:evil.example intitle:fake <tag>'],
+      }),
+    ).not.toMatch(/site:evil|intitle:|[\r\n<>]/);
+  });
+  it("retains all hard constraints for an equivalent occupation", () => {
+    const base = {
+      ...normalizeJob(html(), url)!,
+      title: "HR Specialist",
+      requiredSkills: ["Excel"],
+      experienceLevel: "Junior",
+    };
+    const intent = {
+      targetRoles: ["کارشناس منابع انسانی"],
+      requiredSkills: ["Excel"],
+      excludedSkills: ["Python"],
+      excludedCompanies: ["Excluded"],
+      workTypes: ["Remote" as const],
+      locations: ["Tehran"],
+      experienceLevel: "Junior",
+      minimumSalary: 20000000,
+    };
+    expect(
+      filterAndRank(
+        [
+          base,
+          { ...base, requiredSkills: [] },
+          { ...base, requiredSkills: ["Excel", "Python"] },
+          { ...base, company: "Excluded" },
+          { ...base, workType: "OnSite" },
+          { ...base, location: "Shiraz" },
+          { ...base, experienceLevel: "Senior" },
+          { ...base, salaryMin: 19000000 },
+        ],
+        intent,
+      ),
+    ).toEqual([base]);
+    expect(
+      filterAndRank([{ ...base, salaryMin: null, salaryMax: null }], intent),
+    ).toHaveLength(1);
+  });
   it.each([
     ["حسابدار", "حسابدار ارشد", "کارشناس فروش"],
     ["حسابداری", "حسابدار", "کارشناس فروش"],

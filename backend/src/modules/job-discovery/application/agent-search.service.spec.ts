@@ -1,7 +1,11 @@
 import { AgentSearchService } from "./agent-search.service";
 import { AgentPlannerService, AGENT_SOURCES } from "./agent-planner.service";
 import { DiscoveryRepository, JobDiscoveryProvider } from "./discovery.ports";
-import { DiscoveredJob, SourceReport } from "../domain/discovery";
+import {
+  DiscoveredJob,
+  SourceReport,
+  DiscoveryError,
+} from "../domain/discovery";
 import { JobDiscoveryService } from "./job-discovery.service";
 
 const goal = { targetRoles: ["Backend Developer"], minimumSalary: 60000000 };
@@ -42,6 +46,201 @@ beforeEach(() => {
   }));
   provider = { discover };
   publish = jest.fn(async () => undefined);
+});
+it("searches HR equivalents separately and stops after enough confirmed jobs", async () => {
+  const intent = {
+    targetRoles: ["کارشناس منابع انسانی"],
+    requestedCount: 1,
+    minimumSalary: 60000000,
+    workTypes: ["Remote" as const],
+    requiredSkills: ["Excel"],
+    excludedCompanies: ["Excluded"],
+  };
+  const snapshot = JSON.stringify(intent);
+  const hr = { ...job(1), title: "HR Specialist", requiredSkills: ["Excel"] };
+  discover.mockImplementation(async (_goal, _signal, _progress, options) => ({
+    jobs: options.queryTitles.includes("HR Specialist")
+      ? [
+          hr,
+          hr,
+          { ...hr, company: "Excluded" },
+          { ...hr, workType: "OnSite" },
+          { ...hr, salaryMin: 1 },
+          { ...hr, requiredSkills: [] },
+          { ...hr, title: "HR Manager" },
+        ]
+      : [],
+    sources: options.sources.map(report),
+  }));
+  const result = await new AgentSearchService(
+    provider,
+    new AgentPlannerService(),
+  ).search(intent, signal(), undefined, publish);
+  expect(result.jobs).toEqual([hr]);
+  expect(discover.mock.calls.map((call) => call[3].queryTitles)).toEqual([
+    ["کارشناس منابع انسانی"],
+    ["HR Specialist"],
+  ]);
+  for (const call of discover.mock.calls) expect(call[0]).toEqual(intent);
+  expect(JSON.stringify(intent)).toBe(snapshot);
+  expect(publish).toHaveBeenCalledWith(
+    "agent.completed",
+    expect.objectContaining({ reasonCode: "ENOUGH_RESULTS" }),
+  );
+});
+it("does not retry unknown occupations or search exhausted source page budgets", async () => {
+  await new AgentSearchService(provider, new AgentPlannerService()).search(
+    { targetRoles: ["Medical Device Technician"] },
+    signal(),
+  );
+  expect(discover).toHaveBeenCalledTimes(1);
+  discover.mockClear();
+  discover.mockImplementation(async (_goal, _signal, _progress, options) => {
+    for (const source of options.sources)
+      options.budgets.get(source).remainingFetches = 0;
+    return { jobs: [], sources: options.sources.map(report) };
+  });
+  await new AgentSearchService(provider, new AgentPlannerService()).search(
+    goal,
+    signal(),
+  );
+  expect(discover).toHaveBeenCalledTimes(1);
+});
+it("shares budgets and caps the total at four rounds and sixteen source searches", async () => {
+  await new AgentSearchService(provider, new AgentPlannerService()).search(
+    { targetRoles: ["C#"] },
+    signal(),
+  );
+  expect(discover).toHaveBeenCalledTimes(4);
+  expect(discover.mock.calls.flatMap((call) => call[3].sources)).toHaveLength(
+    16,
+  );
+  expect(
+    new Set(
+      discover.mock.calls.map((call) => JSON.stringify(call[3].queryTitles)),
+    ).size,
+  ).toBe(4);
+  for (const call of discover.mock.calls)
+    expect(call[3].budgets).toBe(discover.mock.calls[0][3].budgets);
+});
+it("merges each attempt once and clears a recovered source error", async () => {
+  let attempt = 0;
+  discover.mockImplementation(async (_goal, _signal, progress, options) => {
+    attempt++;
+    const current = {
+      ...report("jobinja.ir"),
+      found: 2,
+      rejected: 1,
+      evaluated: 1,
+      ...(attempt === 1
+        ? { error: "SEARCH_FAILED", accepted: 0 }
+        : { accepted: 1 }),
+    };
+    await progress.sourceCompleted(current);
+    return { jobs: attempt === 1 ? [] : [job(1)], sources: [current] };
+  });
+  const completed = jest.fn(async () => undefined);
+  const result = await new AgentSearchService(
+    provider,
+    new AgentPlannerService(),
+    ["jobinja.ir"],
+  ).search({ ...goal, requestedCount: 1 }, signal(), {
+    sourceStarted: jest.fn(),
+    sourceCompleted: completed,
+    jobCandidate: jest.fn(async () => true),
+  });
+  expect(discover).toHaveBeenCalledTimes(2);
+  expect(result.partial).toBe(false);
+  expect(result.sources).toEqual([
+    {
+      ...report("jobinja.ir"),
+      found: 4,
+      accepted: 1,
+      rejected: 2,
+      evaluated: 2,
+    },
+  ]);
+  expect(completed).toHaveBeenLastCalledWith(result.sources[0]);
+});
+it.each([
+  "JOB_SEARCH_PROVIDER_UNAVAILABLE",
+  "JOB_FETCH_PROVIDER_UNAVAILABLE",
+  "JOB_FETCH_SECURITY_UNVERIFIED",
+])(
+  "does not retry permanent provider prerequisite failure %s",
+  async (code) => {
+    discover.mockRejectedValue(new DiscoveryError(code, 503));
+    const result = await new AgentSearchService(
+      provider,
+      new AgentPlannerService(),
+    ).search(goal, signal());
+    expect(discover).toHaveBeenCalledTimes(1);
+    expect(result.failureCode).toBe(code);
+    expect(result.partial).toBe(true);
+  },
+);
+it("preserves first-round accepted jobs when a later attempt hangs", async () => {
+  discover.mockResolvedValueOnce({
+    jobs: [job(1)],
+    sources: AGENT_SOURCES.map(report),
+  });
+  discover.mockImplementation(() => new Promise(() => undefined));
+  const result = await new AgentSearchService(
+    provider,
+    new AgentPlannerService(),
+  ).search(goal, signal(), undefined, publish, Date.now() + 100);
+  expect(discover).toHaveBeenCalledTimes(2);
+  expect(result.jobs).toEqual([job(1)]);
+  expect(result.partial).toBe(true);
+  expect(publish).toHaveBeenCalledWith(
+    "agent.completed",
+    expect.objectContaining({ reasonCode: "TIME_LIMIT" }),
+  );
+});
+it("enforces the shared deadline even when a planner ignores cancellation", async () => {
+  const planner = {
+    decide: jest.fn(() => new Promise(() => undefined)),
+  } as unknown as AgentPlannerService;
+  const result = await new AgentSearchService(provider, planner).search(
+    goal,
+    signal(),
+    undefined,
+    publish,
+    Date.now() + 30,
+  );
+  expect(discover).not.toHaveBeenCalled();
+  expect(result.partial).toBe(true);
+});
+it("does not start work when cancellation or deadline has already occurred", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const planner = new AgentPlannerService();
+  const decide = jest.spyOn(planner, "decide");
+  await new AgentSearchService(provider, planner).search(
+    goal,
+    controller.signal,
+  );
+  await new AgentSearchService(provider, planner).search(
+    goal,
+    signal(),
+    undefined,
+    undefined,
+    Date.now() - 1,
+  );
+  expect(decide).not.toHaveBeenCalled();
+  expect(discover).not.toHaveBeenCalled();
+});
+it("does not start a provider after cancellation during a progress publish", async () => {
+  const controller = new AbortController();
+  publish.mockImplementation(async (type) => {
+    if (type === "agent.decision") controller.abort();
+  });
+  const result = await new AgentSearchService(
+    provider,
+    new AgentPlannerService(),
+  ).search(goal, controller.signal, undefined, publish);
+  expect(discover).not.toHaveBeenCalled();
+  expect(result.partial).toBe(true);
 });
 it("uses the requested ten jobs as the goal and combines concurrent sources", async () => {
   discover.mockImplementationOnce(
@@ -90,7 +289,10 @@ it("searches every active source even when one source supplies enough jobs", asy
   expect(result.jobs).toHaveLength(5);
   expect(result.partial).toBe(false);
   expect(discover).toHaveBeenCalledTimes(1);
-  expect(discover.mock.calls[0][3]).toEqual({ sources: AGENT_SOURCES });
+  expect(discover.mock.calls[0][3]).toMatchObject({
+    sources: AGENT_SOURCES,
+    queryTitles: goal.targetRoles,
+  });
   expect(publish).toHaveBeenCalledWith(
     "agent.decision",
     expect.objectContaining({ action: "FINISH", reasonCode: "ENOUGH_RESULTS" }),
@@ -105,7 +307,7 @@ it("keeps uncertain jobs visible and continues until confirmed results or source
     provider,
     new AgentPlannerService(),
   ).search(goal, signal(), undefined, publish);
-  expect(discover).toHaveBeenCalledTimes(1);
+  expect(discover).toHaveBeenCalledTimes(3);
   expect(result.jobs).toHaveLength(5);
   expect(publish).toHaveBeenCalledWith(
     "agent.completed",
@@ -115,8 +317,8 @@ it("keeps uncertain jobs visible and continues until confirmed results or source
     /PRIVATE_PAGE_TEXT|PRIVATE_QUERY/,
   );
 });
-it("retains streamed jobs and completed sources when another source throws", async () => {
-  discover.mockImplementationOnce(async (_goal, _signal, progress, options) => {
+it("retains streamed jobs and completed sources when another source keeps throwing", async () => {
+  discover.mockImplementation(async (_goal, _signal, progress, options) => {
     await progress.jobCandidate(job(1));
     await progress.sourceCompleted(report(options.sources[0]));
     throw new Error("provider offline");
@@ -202,23 +404,22 @@ it("enforces all sources and immutable user goal even when a planner chooses jus
     }),
   } as unknown as AgentPlannerService;
   await new AgentSearchService(provider, planner).search(goal, signal());
-  expect(discover).toHaveBeenCalledTimes(1);
-  expect(discover.mock.calls[0][3]).toEqual({ sources: AGENT_SOURCES });
+  expect(discover).toHaveBeenCalledTimes(3);
+  for (const call of discover.mock.calls)
+    expect(call[3].sources).toEqual(AGENT_SOURCES);
   expect(discover.mock.calls.map((call) => call[0].minimumSalary)).toEqual([
-    60000000,
+    60000000, 60000000, 60000000,
   ]);
   expect(goal.minimumSalary).toBe(60000000);
 });
-it("observes one failed source while retaining results from other sources", async () => {
-  discover.mockImplementationOnce(
-    async (_goal, _signal, _progress, options) => ({
-      jobs: [job(1)],
-      sources: options.sources.map((source: string) => ({
-        ...report(source),
-        ...(source === "jobvision.ir" ? { error: "SEARCH_FAILED" } : {}),
-      })),
-    }),
-  );
+it("observes one persistently failed source while retaining results from other sources", async () => {
+  discover.mockImplementation(async (_goal, _signal, _progress, options) => ({
+    jobs: [job(1)],
+    sources: options.sources.map((source: string) => ({
+      ...report(source),
+      ...(source === "jobvision.ir" ? { error: "SEARCH_FAILED" } : {}),
+    })),
+  }));
   const result = await new AgentSearchService(
     provider,
     new AgentPlannerService(),
@@ -242,7 +443,8 @@ it("never searches disabled or nonallowlisted domains", async () => {
     ["linkedin.com", "jobinja.ir"],
   ).search(goal, signal());
   expect(result.sources.map((source) => source.source)).toEqual(["jobinja.ir"]);
-  expect(discover.mock.calls[0][3]).toEqual({ sources: ["jobinja.ir"] });
+  for (const call of discover.mock.calls)
+    expect(call[3].sources).toEqual(["jobinja.ir"]);
 });
 it("uses one discovery run and skips the planner on cache hits", async () => {
   const repository = {
@@ -269,7 +471,7 @@ it("uses one discovery run and skips the planner on cache hits", async () => {
   await service.search("owner", "conversation");
   expect(repository.begin).toHaveBeenCalledTimes(1);
   expect(repository.complete).toHaveBeenCalledTimes(1);
-  expect(discover).toHaveBeenCalledTimes(1);
+  expect(discover).toHaveBeenCalledTimes(3);
   repository.begin.mockResolvedValueOnce({
     id: "run",
     status: "COMPLETED",

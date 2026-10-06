@@ -38,6 +38,10 @@ export function RunActivity({ run }: { run: ChatRunView }) {
       >
         {run.status === "FAILED"
           ? "! عملیات کامل نشد"
+          : run.status === "PARTIAL"
+            ? run.jobs.length
+              ? `! ${run.jobs.length.toLocaleString("fa-IR")} موقعیت پیدا شد؛ بررسی منابع کامل نشد`
+              : "! جستجو کامل نشد؛ هنوز نتیجه‌ای تأیید نشده"
           : finished
             ? `✓ ${searching || cached ? `${run.jobs.length.toLocaleString("fa-IR")} موقعیت پیدا شد` : "درخواست بررسی شد"}`
             : "◌ در حال انجام درخواست…"}

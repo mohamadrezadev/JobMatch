@@ -21,6 +21,11 @@ const view = (): ChatRunView => ({
   error: null,
 });
 beforeEach(() => useChatRunStore.getState().reset());
+it("does not present incomplete searches with zero jobs as a successful empty search", () => {
+  render(<RunActivity run={{ ...view(), status: "PARTIAL" }} />);
+  expect(screen.getByRole("button", { name: /جستجو کامل نشد؛ هنوز نتیجه‌ای تأیید نشده/ })).toBeInTheDocument();
+  expect(screen.queryByText(/✓ ۰ موقعیت پیدا شد/)).not.toBeInTheDocument();
+});
 it("shows that all four sources are searched concurrently", () => {
   const run = view();
   run.events = [
