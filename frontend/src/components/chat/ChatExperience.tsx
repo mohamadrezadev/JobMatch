@@ -11,10 +11,21 @@ import { useDiscoveryStore } from "@/stores/useDiscoveryStore";
 import { useChatRunStore } from "@/stores/useChatRunStore";
 import { RunActivity } from "./RunActivity";
 import { runFinished } from "@/types/chat-run";
+import Link from "next/link";
 
 const workLabels = { Remote: "دورکار", Hybrid: "هیبرید", OnSite: "حضوری" };
 export default function ChatExperience() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const isProfileComplete = useAuthStore((state) => state.isProfileComplete);
+  if (isAuthenticated && isProfileComplete === false)
+    return (
+      <p>
+        برای دریافت پیشنهادهای شخصی{" "}
+        <Link href="/onboarding" className="text-brand-500">
+          پروفایل خود را تکمیل کنید.
+        </Link>
+      </p>
+    );
   return isAuthenticated ? <AuthenticatedChat /> : <GuestChat />;
 }
 function AuthenticatedChat() {
@@ -50,14 +61,16 @@ function AuthenticatedChat() {
       const importedKey = `jobmatch-imported-${owner}`;
       setClaiming(true);
       try {
-        let id = sessionStorage.getItem(importedKey);
+        let id =
+          new URLSearchParams(window.location.search).get("conversation") ??
+          sessionStorage.getItem(importedKey);
         if (!id && sessionStorage.getItem(guestContinuationKey)) {
           const response = await apiClient.post(
             "/api/chat/guest/claim",
             {},
             { withCredentials: true },
           );
-          id = response.data.data.conversationId;
+          id = (response.data.data ?? response.data).conversationId;
           if (id) sessionStorage.setItem(importedKey, id);
         }
         if (cancelled) return;
@@ -123,7 +136,7 @@ function AuthenticatedChat() {
           </div>
           <div>
             <h1 className="text-sm font-bold text-slate-800 dark:text-white">
-              دستیار هوشمند شغلی جاب مچ
+              دستیار هوشمند شغلی کارمچ
             </h1>
             <p className="flex items-center gap-1 text-[10px] font-medium text-emerald-500">
               <span className="h-1.5 w-1.5 animate-ping rounded-full bg-emerald-500" />
@@ -256,7 +269,7 @@ function AuthenticatedChat() {
             </div>
             <div className="max-w-[85%] space-y-2 rounded-2xl rounded-tr-none border border-slate-200/50 bg-slate-100 p-4 text-slate-800 dark:border-dark-border dark:bg-dark-card dark:text-slate-200">
               <p className="font-bold text-brand-500">
-                سلام {user.firstName}! من دستیار شغلی هوشمند جاب مچ هستم.
+                سلام {user.firstName}! من دستیار شغلی هوشمند کارمچ هستم.
               </p>
               <p>چگونه می‌توانم امروز به شما کمک کنم؟ می‌توانید بگویید:</p>
               <ul className="list-inside list-disc space-y-1 text-slate-500 dark:text-slate-400">

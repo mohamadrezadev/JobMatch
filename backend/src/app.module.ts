@@ -11,6 +11,8 @@ import { JobsModule } from "./modules/jobs/jobs.module";
 import { MatchingModule } from "./modules/matching/matching.module";
 import { ResumeModule } from "./modules/resume/resume.module";
 import { FeedbackModule } from "./modules/feedback/feedback.module";
+import { DashboardModule } from "./modules/dashboard/dashboard.module";
+import { AnalyticsModule } from "./modules/analytics/analytics.module";
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { FeedbackModule } from "./modules/feedback/feedback.module";
     ChatModule,
     ChatRunsModule,
     JobDiscoveryModule,
+    DashboardModule,
+    AnalyticsModule,
   ],
 })
 export class AppModule {}

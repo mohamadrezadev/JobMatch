@@ -1,2 +1,4 @@
-import { AcademyView } from '@/components/pathly/AcademyView';
-export default function AcademyPage() { return <AcademyView />; }
+﻿import { redirect } from "next/navigation";
+export default function AcademyPage() {
+  redirect("/dashboard");
+}

@@ -1,2 +1,4 @@
-import { redirect } from 'next/navigation';
-export default function DashboardPage() { redirect('/'); }
+﻿import { DashboardView } from "@/components/pathly/DashboardView";
+export default function DashboardPage() {
+  return <DashboardView />;
+}

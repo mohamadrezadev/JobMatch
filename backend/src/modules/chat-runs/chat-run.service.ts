@@ -171,6 +171,14 @@ export class ChatRunService implements OnModuleDestroy {
         data: { status: "RUNNING" },
       });
       await this.publish(run.id, "run.started", {});
+      if (!run.conversationId)
+        await this.prisma.analyticsEvent.create({
+          data: {
+            userId: run.userId,
+            name: "Chat Started",
+            resourceId: run.id,
+          },
+        });
       let reply: string;
       let shouldSearch = Boolean(run.retryOf);
       if (!run.retryOf) {
@@ -227,6 +235,13 @@ export class ChatRunService implements OnModuleDestroy {
       let partial = false;
       if (shouldSearch) {
         startedTool = true;
+        await this.prisma.analyticsEvent.create({
+          data: {
+            userId: run.userId,
+            name: "Job Search Started",
+            resourceId: run.id,
+          },
+        });
         await this.publish(run.id, "tool.started", { tool: "job_search" });
         const result = await this.discovery.search(
           run.userId,
@@ -238,6 +253,13 @@ export class ChatRunService implements OnModuleDestroy {
           },
         );
         partial = result.partial;
+        await this.prisma.analyticsEvent.create({
+          data: {
+            userId: run.userId,
+            name: "Job Search Completed",
+            resourceId: run.id,
+          },
+        });
         reply = result.jobs.length
           ? `${result.jobs.length.toLocaleString("fa-IR")} موقعیت مرتبط پیدا شد.`
           : "آگهی معتبری با شرایط فعلی پیدا نشد.";

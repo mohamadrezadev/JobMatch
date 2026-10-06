@@ -21,7 +21,7 @@ const benefits = [
   {
     icon: "route",
     title: "قدم بعدی را انتخاب کن",
-    text: "گفتگو، یادگیری و ساخت رزومه را در یک فضای مشترک دنبال کن.",
+    text: "گفتگو، بررسی فرصت‌ها و ساخت رزومه را در یک فضای مشترک دنبال کن.",
   },
 ];
 export function LandingPage() {
@@ -40,19 +40,14 @@ export function LandingPage() {
       <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between gap-3 px-5 py-6 sm:px-8">
         <Link
           href="/"
-          aria-label="جاب مچ، صفحه اصلی"
+          aria-label="کارمچ، صفحه اصلی"
           className="flex items-center gap-3"
         >
-          <BrandLogo className="h-10 w-10" />
-          <div>
-            <span className="block text-xl font-black">جاب مچ</span>
-            <span
-              dir="ltr"
-              className="block text-[10px] font-semibold tracking-[0.15em] text-slate-400"
-            >
-              JOBMATCH
-            </span>
-          </div>
+          <BrandLogo
+            variant="wordmark"
+            className="hidden w-48 sm:inline-flex"
+          />
+          <BrandLogo variant="icon" className="h-10 w-10 sm:hidden" />
         </Link>
         <nav
           aria-label="ناوبری صفحه اصلی"
@@ -95,6 +90,11 @@ export function LandingPage() {
       </header>
       <main className="relative z-10 mx-auto max-w-7xl px-5 pb-12 sm:px-8">
         <section className="pb-10 pt-8 text-center sm:pb-14 sm:pt-14">
+          <BrandLogo
+            variant="full"
+            className="mx-auto mb-8 w-full max-w-xl"
+            priority
+          />
           <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
             <Icon name="wand-magic-sparkles" />
             مسیر شغلی‌ات از همین گفتگو شروع می‌شود
@@ -107,8 +107,8 @@ export function LandingPage() {
             </span>
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-sm leading-8 text-slate-500 dark:text-slate-400">
-            از مهارت‌ها و کاری که دوست داری بگو. جاب مچ کمک می‌کند خواسته‌هایت
-            را روشن کنی و مسیرت را قدم‌به‌قدم جلو ببری.
+            از مهارت‌ها و کاری که دوست داری بگو. کارمچ کمک می‌کند خواسته‌هایت را
+            روشن کنی و مسیرت را قدم‌به‌قدم جلو ببری.
           </p>
           <a
             href="#start-chat"
@@ -148,7 +148,7 @@ export function LandingPage() {
                 با حرف‌های خودت، برای مسیر خودت
               </p>
               <p className="mt-2 text-xs leading-7 text-slate-500 dark:text-slate-400">
-                ترجیح شغلی با مهارت واقعی فرق دارد. جاب مچ این دو را جدا نگه
+                ترجیح شغلی با مهارت واقعی فرق دارد. کارمچ این دو را جدا نگه
                 می‌دارد تا خواسته‌هایت به سوابقت اضافه نشوند.
               </p>
             </div>
@@ -225,7 +225,7 @@ export function LandingPage() {
         </section>
       </main>
       <footer className="relative z-10 mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 border-t border-slate-200 px-5 py-7 text-xs text-slate-500 dark:border-dark-border dark:text-slate-400 sm:px-8">
-        <span>جاب مچ · قدم بعدی، روشن‌تر</span>
+        <span>کارمچ · قدم بعدی، روشن‌تر</span>
         <div className="flex gap-5">
           <a href="#start-chat">شروع گفتگو</a>
           <Link href={isAuthenticated ? "/chat" : "/register"}>

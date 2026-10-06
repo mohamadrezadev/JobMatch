@@ -55,3 +55,7 @@ backend/prisma/migrations/
 frontend/.visual-check/
 
 frontend/.next-dev/
+# Generated private resume PDFs
+backend/storage/
+# Local browser screenshots from branding verification
+frontend/test-results/brand/

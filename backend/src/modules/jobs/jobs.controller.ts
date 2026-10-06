@@ -1,31 +1,43 @@
-import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
-import { JobsService } from './jobs.service';
-import { SearchJobsDto } from './dto/jobs.dto';
+﻿import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+} from "@nestjs/common";
+import { JobsService } from "./jobs.service";
+import { SearchJobsDto } from "./dto/jobs.dto";
+import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
+import { CurrentUser } from "../../common/decorators/current-user.decorator";
 
-@Controller('api/jobs')
+@Controller("api/jobs")
 export class JobsController {
   constructor(private readonly jobsService: JobsService) {}
-
   @Get()
-  async list(
-    @Query('page') page = 1,
-    @Query('limit') limit = 12,
+  list(@Query() dto: SearchJobsDto) {
+    return this.jobsService.search(dto);
+  }
+  @Post("search")
+  search(@Body() dto: SearchJobsDto) {
+    return this.jobsService.search(dto);
+  }
+  @Get("search")
+  @UseGuards(JwtAuthGuard)
+  searchQuery(
+    @Query() dto: SearchJobsDto,
+    @CurrentUser() user: { sub: string },
   ) {
-    return this.jobsService.list(Number(page), Number(limit));
+    return this.jobsService.search(dto, user.sub);
   }
-
-  @Post('search')
-  async search(@Body() dto: SearchJobsDto) {
-    return this.jobsService.search(dto.keyword, dto.page, dto.limit);
+  @Get("recommended")
+  @UseGuards(JwtAuthGuard)
+  recommended(@CurrentUser() user: { sub: string }) {
+    return this.jobsService.getRecommended(user.sub);
   }
-
-  @Get('recommended')
-  async recommended() {
-    return this.jobsService.getRecommended();
-  }
-
-  @Get(':id')
-  async getById(@Param('id') id: string) {
+  @Get(":id")
+  getById(@Param("id") id: string) {
     return this.jobsService.getById(id);
   }
 }

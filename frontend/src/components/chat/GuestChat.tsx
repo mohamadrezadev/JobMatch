@@ -108,7 +108,7 @@ export function GuestChat() {
           <BrandLogo className="h-10 w-10" />
           <div>
             <h2 id="guest-chat-title" className="text-sm font-extrabold">
-              با جاب مچ گفتگو کن
+              با کارمچ گفتگو کن
             </h2>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               شروع بدون ثبت‌نام

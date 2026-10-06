@@ -70,6 +70,7 @@ model User {
   conversations   Conversation[]
   discoveryRuns   JobDiscoveryRun[]
   chatRuns        ChatRun[]
+  analyticsEvents AnalyticsEvent[]
 
   @@map("users")
 }
@@ -84,6 +85,7 @@ model Profile {
   experienceLevel   ExperienceLevel?
   workType          WorkType?
   socialLinks       Json?
+  resumeFacts       String[] @default([])
   isProfileComplete Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -285,4 +287,17 @@ model ChatRunEvent {
 
   @@unique([runId, sequence])
   @@map("chat_run_events")
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(uuid())
+  userId     String
+  name       String
+  resourceId String?
+  createdAt  DateTime @default(now())
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([name, createdAt])
+  @@map("analytics_events")
 }

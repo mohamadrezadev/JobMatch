@@ -21,6 +21,7 @@ RUN pnpm install --frozen-lockfile
 
 # Copy backend source
 COPY backend/src ./backend/src
+COPY backend/assets ./backend/assets
 
 # Build backend
 RUN cd backend && pnpm run build
@@ -42,6 +43,7 @@ COPY backend/package.json backend/tsconfig.json ./backend/
 COPY backend/prisma ./backend/prisma/
 COPY --from=builder /app/backend/node_modules ./backend/node_modules
 COPY --from=builder /app/backend/dist ./backend/dist
+COPY --from=builder /app/backend/assets ./backend/assets
 
 EXPOSE 3000
 
