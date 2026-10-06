@@ -24,6 +24,7 @@ describe("Chat composer", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     sessionStorage.clear();
+    window.history.replaceState({}, "", "/chat");
     useChatStore.getState().reset(null);
     useChatRunStore.getState().reset();
     (apiClient.get as jest.Mock).mockImplementation((url: string) =>

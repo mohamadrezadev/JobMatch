@@ -4,6 +4,38 @@ import { SearchJobsDto } from "./dto/jobs.dto";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 describe("Server job search", () => {
+  it("keeps search results available to a new owner without inventing personal scores", async () => {
+    const db = {
+      job: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            {
+              id: "job",
+              requiredSkills: [{ name: "Excel" }],
+              experienceLevel: "Junior",
+              location: "تهران",
+              workType: "OnSite",
+            },
+          ]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+      profile: { findUnique: jest.fn().mockResolvedValue(null) },
+      userSkill: { findMany: jest.fn().mockResolvedValue([]) },
+      resume: { count: jest.fn().mockResolvedValue(0) },
+    };
+    const response = await new JobsService(
+      db as unknown as PrismaService,
+    ).search({ page: 1, limit: 12 }, "owner");
+    expect(response.items).toHaveLength(1);
+    expect(response.items[0]).toMatchObject({
+      id: "job",
+      match: { matchScore: null, reason: "RESUME_REQUIRED" },
+    });
+    expect(db.resume.count).toHaveBeenCalledWith({
+      where: { userId: "owner" },
+    });
+  });
   it("applies all conditions before skip/take and count", async () => {
     const db = {
       job: {

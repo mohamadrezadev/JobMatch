@@ -1,4 +1,6 @@
-import { matchJob } from "./match";
+import { matchJob as calculateMatch } from "./match";
+const matchJob = (...args: Parameters<typeof calculateMatch>) =>
+  calculateMatch(args[0], args[1], args[2], true);
 const job = {
   requiredSkills: [{ name: "React" }],
   preferredSkills: [],
@@ -37,7 +39,7 @@ describe("Explainable matching", () => {
       experienceLevel: null,
       salaryMin: null,
     });
-    expect(result.matchScore).toBe(50);
+    expect(result.matchScore).toBeNull();
     expect(result.breakdown.salary.status).toBe("unknown");
     expect(result.breakdown.experience.status).toBe("unknown");
   });
@@ -65,5 +67,34 @@ describe("Explainable matching", () => {
     });
     expect(result.breakdown.skills.score).toBe(67);
     expect(result.skillGaps).toEqual([]);
+  });
+  it("does not award a percentage to an account without a saved resume", () => {
+    expect(calculateMatch(profile, ["React"], job)).toMatchObject({
+      matchScore: null,
+      status: "insufficient_data",
+      reason: "RESUME_REQUIRED",
+      skillGaps: [],
+    });
+  });
+  it("does not invent candidate skills even when a resume record exists", () => {
+    expect(calculateMatch(null, [], job, true)).toMatchObject({
+      matchScore: null,
+      reason: "PROFILE_REQUIRED",
+    });
+  });
+  it("excludes unknown salary from the weighted score and declares evidence coverage", () => {
+    expect(
+      matchJob(profile, ["React"], { ...job, salaryMin: null }),
+    ).toMatchObject({
+      matchScore: 100,
+      status: "partial",
+      evidenceCoverage: 90,
+      breakdown: { salary: { score: null, status: "unknown" } },
+    });
+  });
+  it("withholds a total when the posting has no comparable skill requirements", () => {
+    expect(
+      matchJob(profile, ["React"], { ...job, requiredSkills: [] }),
+    ).toMatchObject({ matchScore: null, reason: "JOB_REQUIREMENTS_UNKNOWN" });
   });
 });

@@ -1,232 +1,204 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import apiClient from "@/lib/api-client";
+import { useAuthReady } from "@/lib/use-auth-ready";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useThemeStore } from "@/stores/useThemeStore";
 import { Icon } from "./Icon";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 
 const links = [
-  { href: "/", label: "شروع گفتگو", mobile: "گفتگو", icon: "comments" },
-  { href: "/jobs", label: "کشف فرصت‌ها", mobile: "شغل‌ها", icon: "briefcase" },
+  { href: "/chat", label: "دستیار هوشمند", mobile: "دستیار", icon: "comments" },
+  {
+    href: "/jobs",
+    label: "فرصت‌های شغلی",
+    mobile: "فرصت‌ها",
+    icon: "briefcase",
+  },
   {
     href: "/dashboard",
-    label: "داشبورد",
+    label: "داشبورد من",
     mobile: "داشبورد",
     icon: "chart-line",
   },
+  { href: "/resume", label: "رزومه‌ساز", mobile: "رزومه", icon: "file-lines" },
   {
-    href: "/chat",
-    label: "دستیار هوشمند (AI)",
-    mobile: "دستیار",
-    icon: "wand-magic-sparkles",
+    href: "/profile",
+    label: "پروفایل و مهارت‌ها",
+    mobile: "پروفایل",
+    icon: "user",
   },
   {
-    href: "/resume",
-    label: "استودیو رزومه",
-    mobile: "رزومه",
-    icon: "file-lines",
+    href: "/settings",
+    label: "تنظیمات حساب",
+    mobile: "تنظیمات",
+    icon: "sliders",
   },
 ];
+
 export function PathlyShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [accountChecked, setAccountChecked] = useState(false);
-  const [accountError, setAccountError] = useState("");
-  const { user, isAuthenticated, logout } = useAuthStore();
+  const ready = useAuthReady();
+  const leavingAfterLogout = useRef(false);
+  const { user, isAuthenticated, isProfileComplete, logout } = useAuthStore();
   const { theme, initialize, toggle } = useThemeStore();
   useEffect(() => initialize(), [initialize]);
   useEffect(() => {
-    // The first React render uses the server snapshot before persisted Zustand hydration.
-    if (useAuthStore.getState().isAuthenticated !== isAuthenticated) return;
-    let alive = true;
-    setAccountChecked(false);
-    setAccountError("");
+    if (!ready || leavingAfterLogout.current) return;
     if (!isAuthenticated) {
       const preview =
         process.env.NODE_ENV !== "production" &&
         new URLSearchParams(window.location.search).get("preview") === "design";
       if (!preview && !["/chat", "/jobs"].includes(pathname))
         router.replace("/login");
-      setAccountChecked(true);
       return;
     }
+    let alive = true;
     apiClient
       .get("/api/users/profile")
       .then((response) => {
-        if (!alive) return;
-        const complete = Boolean(
-          (response.data.data ?? response.data).isProfileComplete,
-        );
-        useAuthStore.setState({ isProfileComplete: complete });
-        if (!complete && !["/onboarding", "/profile"].includes(pathname))
-          router.replace("/onboarding");
-        setAccountChecked(true);
+        if (alive)
+          useAuthStore.setState({
+            isProfileComplete: Boolean(
+              (response.data.data ?? response.data).isProfileComplete,
+            ),
+          });
       })
       .catch((error) => {
-        if (!alive) return;
-        if (error.response?.status === 404) {
+        if (alive && error.response?.status === 404)
           useAuthStore.setState({ isProfileComplete: false });
-          if (pathname !== "/onboarding") router.replace("/onboarding");
-          setAccountChecked(true);
-        } else
-          setAccountError(
-            "بررسی حساب انجام نشد. صفحه را دوباره بارگذاری کنید.",
-          );
       });
     return () => {
       alive = false;
     };
-  }, [isAuthenticated, user?.id, pathname, router]);
-  const active = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
-  return (
-    <div className="relative flex min-h-screen flex-col overflow-x-hidden bg-light-bg text-slate-800 transition-colors duration-300 dark:bg-dark-bg dark:text-slate-100 md:flex-row">
-      <div
-        className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
-        aria-hidden="true"
+  }, [ready, isAuthenticated, user?.id, pathname, router]);
+  const active = (href: string) => pathname.startsWith(href);
+  const pageTitle =
+    links.find((link) => active(link.href))?.label ?? "فضای کاری";
+  const navigation = (mobile = false) =>
+    (mobile ? links.slice(0, 4) : links).map((link) => (
+      <Link
+        key={link.href}
+        href={link.href}
+        aria-current={active(link.href) ? "page" : undefined}
+        className={
+          mobile
+            ? `flex min-h-12 flex-1 flex-col items-center justify-center gap-1 text-[10px] font-bold ${active(link.href) ? "text-brand-500" : "text-slate-500 dark:text-slate-400"}`
+            : `flex items-center gap-3 rounded-2xl px-4 py-3.5 text-sm transition-all ${active(link.href) ? "bg-brand-500 font-bold text-white shadow-lg shadow-brand-500/20" : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-dark-card"}`
+        }
       >
-        <div className="absolute -right-32 -top-32 h-96 w-96 animate-pulse-glow rounded-full bg-brand-500/10 blur-3xl dark:bg-brand-500/15" />
-        <div className="absolute -left-32 top-1/2 h-80 w-80 animate-pulse-glow rounded-full bg-emerald-500/10 blur-3xl [animation-delay:1.5s]" />
-      </div>
-      <aside className="relative z-20 hidden w-64 shrink-0 flex-col justify-between border-l border-slate-200 bg-light-surface p-4 dark:border-dark-border dark:bg-dark-surface md:flex">
-        <div>
-          <Link
-            href="/"
-            className="mb-6 flex items-center justify-between border-b border-slate-100 px-2 py-3 dark:border-dark-border/50"
-          >
-            <BrandLogo variant="wordmark" className="w-full" />
-          </Link>
-          <nav className="space-y-1" aria-label="ناوبری اصلی">
-            {links.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                aria-current={active(link.href) ? "page" : undefined}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${active(link.href) ? "bg-brand-500/10 text-brand-500 font-bold dark:text-slate-300" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-dark-card"}`}
-              >
-                <Icon
-                  name={link.icon}
-                  className={`w-5 text-center ${link.href === "/academy" ? "text-emerald-500" : link.href === "/chat" ? "text-brand-500" : "text-slate-400"}`}
-                />
-                <span>{link.label}</span>
-              </Link>
-            ))}
-          </nav>
+        <Icon name={link.icon} className="shrink-0 text-base" />
+        <span>{mobile ? link.mobile : link.label}</span>
+      </Link>
+    ));
+  return (
+    <div className="app-shell min-h-screen bg-light-bg text-slate-800 dark:bg-dark-bg dark:text-slate-100">
+      <header className="sticky top-0 z-30 flex h-[72px] items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur-xl dark:border-dark-border dark:bg-dark-surface/95 md:px-7">
+        <Link
+          href={isAuthenticated ? "/chat" : "/"}
+          aria-label="کارمچ، صفحه اصلی"
+          className="shrink-0"
+        >
+          <BrandLogo variant="wordmark" className="w-36 sm:w-40" />
+        </Link>
+        <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-500 dark:border-dark-border dark:bg-dark-card md:flex">
+          <Icon name="compass" /> فضای کاری شما{" "}
+          <span className="text-slate-300 dark:text-slate-600">/</span>{" "}
+          {pageTitle}
         </div>
-        <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-dark-border">
-          {isAuthenticated && (
-            <Link href="/settings" className="block px-3 text-sm">
-              تنظیمات
-            </Link>
-          )}
+        <div className="flex min-w-0 items-center gap-2">
           <button
-            onClick={toggle}
             type="button"
             aria-label="تغییر تم سایت"
-            className="flex w-full items-center justify-between rounded-xl bg-slate-100 px-3 py-2.5 text-xs font-semibold text-slate-700 hover:opacity-90 dark:bg-dark-card dark:text-slate-300"
+            onClick={toggle}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 dark:border-dark-border dark:text-amber-300"
           >
-            <span className="flex items-center gap-2">
-              <Icon
-                name={theme === "dark" ? "sun" : "moon"}
-                className={
-                  theme === "dark" ? "text-amber-500" : "text-indigo-400"
-                }
-              />
-              <span>تغییر تم سایت</span>
-            </span>
-            <span className="rounded bg-slate-200 px-2 py-0.5 text-[10px] dark:bg-dark-border">
-              {theme === "dark" ? "تاریک" : "روشن"}
-            </span>
+            <Icon name={theme === "dark" ? "sun" : "moon"} />
           </button>
           <Link
             href={isAuthenticated ? "/profile" : "/login"}
-            className="flex items-center gap-3 rounded-xl bg-slate-100 p-2 dark:bg-dark-card/60"
+            className="flex min-w-0 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 dark:border-dark-border dark:bg-dark-card"
+            aria-label={isAuthenticated ? "مشاهده پروفایل" : "ورود به حساب"}
           >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-brand-500 to-indigo-600 text-sm font-bold text-white">
-              {isAuthenticated && user
-                ? user.firstName.slice(0, 1) + user.lastName.slice(0, 1)
-                : "ج‌م"}
-            </div>
-            <div className="overflow-hidden">
-              <p className="truncate text-xs font-bold text-slate-800 dark:text-slate-100">
-                {isAuthenticated && user
-                  ? `${user.firstName} ${user.lastName}`
-                  : "مهمان کارمچ"}
-              </p>
-              <p className="truncate text-[10px] text-slate-500 dark:text-slate-400">
-                {isAuthenticated
-                  ? "مشاهده و ویرایش پروفایل"
-                  : "مسیر شغلی‌ات را شروع کن"}
-              </p>
-            </div>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-500/15 text-xs font-black text-brand-500">
+              {isAuthenticated ? (
+                user?.firstName.slice(0, 1)
+              ) : (
+                <Icon name="user" />
+              )}
+            </span>
+            <span className="hidden max-w-32 truncate pl-2 text-xs font-bold sm:block">
+              {isAuthenticated ? user?.firstName : "ورود به حساب"}
+            </span>
           </Link>
-          {isAuthenticated && (
-            <button
-              aria-label="خروج از حساب"
-              onClick={logout}
-              className="absolute bottom-7 left-6 text-[10px] text-slate-400 hover:text-rose-500"
-            >
-              <Icon name="right-from-bracket" />
-            </button>
-          )}
         </div>
-      </aside>
+      </header>
+      <div className="flex min-w-0 items-start">
+        <aside className="sticky top-[72px] hidden h-[calc(100dvh-72px)] w-60 shrink-0 flex-col justify-between overflow-y-auto border-l border-slate-200 bg-light-surface p-4 dark:border-dark-border dark:bg-dark-surface md:flex xl:w-64">
+          <div>
+            <p className="mb-4 px-3 pt-3 text-[10px] font-bold tracking-wide text-slate-400">
+              مسیر شغلی شما
+            </p>
+            <nav aria-label="ناوبری اصلی" className="space-y-2">
+              {navigation()}
+            </nav>
+          </div>
+          <div className="mt-8 space-y-4">
+            {isAuthenticated && !isProfileComplete && (
+              <div className="rounded-2xl border border-brand-500/20 bg-brand-500/5 p-4">
+                <p className="text-xs font-bold text-brand-500">
+                  پیشنهادهایی براساس خودت
+                </p>
+                <p className="mt-2 text-[11px] leading-6 text-slate-500 dark:text-slate-400">
+                  گفتگو آزاد است. برای تطابق شخصی، مهارت‌ها و سابقه واقعی‌ات را
+                  اضافه کن.
+                </p>
+                <Link
+                  href="/profile"
+                  className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-brand-500"
+                >
+                  تکمیل پروفایل <Icon name="arrow-left" />
+                </Link>
+              </div>
+            )}
+            {isAuthenticated && (
+              <button
+                onClick={() => {
+                  leavingAfterLogout.current = true;
+                  logout();
+                  router.replace("/");
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs text-slate-400 hover:text-rose-500"
+              >
+                <Icon name="right-from-bracket" /> خروج از حساب
+              </button>
+            )}
+            <p className="px-3 text-[10px] text-slate-400">
+              کارمچ · قدم بعدی، روشن‌تر
+            </p>
+          </div>
+        </aside>
+        <main className="min-w-0 flex-1 p-4 pb-24 sm:p-6 md:pb-8 lg:p-8">
+          <div className="mx-auto max-w-[1440px]">
+            {ready ? (
+              children
+            ) : (
+              <p role="status" className="p-6 text-sm text-slate-400">
+                در حال آماده‌کردن فضای کاری…
+              </p>
+            )}
+          </div>
+        </main>
+      </div>
       <nav
         aria-label="ناوبری موبایل"
-        className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-slate-200 bg-light-surface px-3 py-2 text-slate-600 dark:border-dark-border dark:bg-dark-surface dark:text-slate-400 md:hidden"
+        className="mobile-dock fixed bottom-0 left-0 right-0 z-40 flex border-t border-slate-200 bg-white/95 px-2 py-2 backdrop-blur-xl dark:border-dark-border dark:bg-dark-surface/95 md:hidden"
       >
-        {links.map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            aria-current={active(link.href) ? "page" : undefined}
-            className={`flex flex-col items-center gap-1 text-xs ${active(link.href) ? "text-brand-500 font-bold" : link.href === "/academy" ? "text-emerald-500" : ""}`}
-          >
-            <Icon name={link.icon} className="text-base" />
-            <span>{link.mobile}</span>
-          </Link>
-        ))}
+        {navigation(true)}
       </nav>
-      <main className="z-10 min-w-0 flex-1 overflow-y-auto p-4 pb-20 md:p-8 md:pb-6">
-        <div className="mb-6 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-dark-border md:hidden">
-          <Link
-            href="/"
-            aria-label="کارمچ، صفحه اصلی"
-            className="flex items-center gap-2"
-          >
-            <BrandLogo className="h-8 w-8" />
-          </Link>
-          <div className="flex items-center gap-2">
-            <Link
-              href={isAuthenticated ? "/profile" : "/login"}
-              className="text-xs text-brand-500"
-            >
-              {isAuthenticated ? "پروفایل" : "ورود"}
-            </Link>
-            <button
-              type="button"
-              aria-label="تغییر تم سایت"
-              onClick={toggle}
-              className="rounded-lg bg-slate-100 p-2 dark:bg-dark-card"
-            >
-              <Icon
-                name="circle-half-stroke"
-                className="text-slate-600 dark:text-slate-300"
-              />
-            </button>
-          </div>
-        </div>
-        {accountError ? (
-          <p role="alert">{accountError}</p>
-        ) : accountChecked ? (
-          children
-        ) : (
-          <p role="status">در حال بررسی حساب…</p>
-        )}
-      </main>
     </div>
   );
 }

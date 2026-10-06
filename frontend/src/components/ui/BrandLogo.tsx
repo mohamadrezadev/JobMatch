@@ -1,38 +1,72 @@
-import Image from "next/image";
-
 const variants = {
-  icon: { src: "icon-192", width: 192, height: 192, size: "h-10 w-10" },
-  wordmark: { src: "wordmark", width: 1200, height: 267, size: "w-44" },
-  full: { src: "full", width: 1200, height: 280, size: "w-full max-w-xl" },
-  vertical: { src: "vertical", width: 640, height: 632, size: "w-52" },
+  icon: "h-10 w-10",
+  wordmark: "w-44",
+  full: "w-full max-w-xl",
+  vertical: "w-52",
 } as const;
 
 export function BrandLogo({
   variant = "icon",
   className,
-  priority = false,
+  tone = "auto",
 }: {
   variant?: keyof typeof variants;
   className?: string;
   priority?: boolean;
+  tone?: "auto" | "inverse";
 }) {
-  const asset = variants[variant];
-  const full = variant === "full" || variant === "vertical";
+  const standalone = variant === "icon";
+  const vertical = variant === "vertical";
+  const expanded = variant === "full" || vertical;
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center ${variant === "icon" ? "" : "rounded-2xl bg-[#f8fbff] p-3"} ${className ?? asset.size}`}
+      role="img"
+      aria-label={
+        expanded
+          ? "KarMatch — مهارت‌های تو، فرصت مناسب تو."
+          : "KarMatch — کارمچ"
+      }
+      data-brand={variant}
+      className={`${standalone ? "inline-flex" : "flex"} shrink-0 items-center ${vertical ? "flex-col gap-3 text-center" : "gap-3"} ${expanded ? "justify-center" : ""} ${className ?? variants[variant]}`}
     >
-      <Image
-        src={`/brand/karmatch-${asset.src}.png`}
-        alt={
-          full ? "KarMatch — مهارت‌های تو، فرصت مناسب تو." : "KarMatch — کارمچ"
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/karmatch-mark.svg"
+        alt=""
+        aria-hidden="true"
+        width={48}
+        height={48}
+        className={
+          standalone
+            ? "h-full w-full"
+            : expanded
+              ? "h-14 w-14 shrink-0"
+              : "h-10 w-10 shrink-0"
         }
-        width={asset.width}
-        height={asset.height}
-        className="block h-auto w-full object-contain"
-        priority={priority}
-        unoptimized
       />
+      {!standalone && (
+        <span
+          className={`flex min-w-0 flex-col ${vertical ? "items-center" : "items-start"}`}
+        >
+          <span
+            className={`${expanded ? "text-3xl" : "text-2xl"} font-black leading-tight tracking-tight ${tone === "inverse" ? "text-white" : "text-slate-900 dark:text-slate-100"}`}
+          >
+            کارمچ
+          </span>
+          {expanded ? (
+            <span className="mt-2 text-xs font-medium leading-6 text-slate-500 dark:text-slate-400">
+              مهارت‌های تو، فرصت مناسب تو.
+            </span>
+          ) : (
+            <span
+              dir="ltr"
+              className="mt-0.5 text-[10px] font-semibold tracking-[0.12em] text-slate-500 dark:text-slate-400"
+            >
+              KarMatch
+            </span>
+          )}
+        </span>
+      )}
     </span>
   );
 }

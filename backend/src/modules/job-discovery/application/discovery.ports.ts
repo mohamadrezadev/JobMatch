@@ -17,6 +17,7 @@ export abstract class JobDiscoveryProvider {
     intent: JobSearchIntent,
     signal: AbortSignal,
     progress?: DiscoveryProgress,
+    options?: { sources: string[] },
   ): Promise<{ jobs: DiscoveredJob[]; sources: SourceReport[] }>;
 }
 export abstract class JobContentExtractor {
@@ -41,7 +42,11 @@ export abstract class DiscoveryRepository {
   abstract context(
     userId: string,
     conversationId: string,
-  ): Promise<{ intent: JobSearchIntent; version: number }>;
+  ): Promise<{
+    intent: JobSearchIntent;
+    version: number;
+    rankingExperienceLevel?: string;
+  }>;
   abstract begin(
     userId: string,
     conversationId: string,

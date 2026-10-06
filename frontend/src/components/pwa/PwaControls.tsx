@@ -225,7 +225,7 @@ export function PwaControls() {
             className="flex items-center gap-2 rounded-xl border border-slate-200 bg-light-surface px-3 py-2 text-xs font-bold text-brand-500 shadow-sm dark:border-dark-border dark:bg-dark-surface"
           >
             <BrandLogo className="h-6 w-6" />
-            نصب کارمچ
+            <span className="hidden sm:inline">نصب کارمچ</span>
           </button>
         )}
       </div>

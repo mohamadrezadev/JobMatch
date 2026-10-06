@@ -51,7 +51,7 @@ describe("Evidence-checked agents extraction", () => {
     });
     expect(complete).toHaveBeenCalledWith(
       expect.objectContaining({ model: "agents" }),
-      expect.objectContaining({ signal, timeout: 15000 }),
+      expect.objectContaining({ signal, timeout: 4000, maxRetries: 0 }),
     );
   });
   it("rejects fabricated company/title and non-posting pages", async () => {

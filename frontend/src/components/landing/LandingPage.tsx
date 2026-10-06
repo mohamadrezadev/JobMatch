@@ -1,6 +1,8 @@
 "use client";
 import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuthReady } from "@/lib/use-auth-ready";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { Icon } from "@/components/pathly/Icon";
 import ChatExperience from "@/components/chat/ChatExperience";
@@ -25,9 +27,20 @@ const benefits = [
   },
 ];
 export function LandingPage() {
+  const ready = useAuthReady();
+  const router = useRouter();
   const { isAuthenticated, user } = useAuthStore();
   const { initialize, toggle, theme } = useThemeStore();
   useEffect(() => initialize(), [initialize]);
+  useEffect(() => {
+    if (ready && isAuthenticated) router.replace("/chat");
+  }, [ready, isAuthenticated, router]);
+  if (!ready || isAuthenticated)
+    return (
+      <p role="status" className="p-8 text-center text-sm text-slate-400">
+        در حال آماده‌کردن گفتگو…
+      </p>
+    );
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-light-bg text-slate-800 dark:bg-dark-bg dark:text-slate-100">
       <div

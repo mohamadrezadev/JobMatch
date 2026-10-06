@@ -27,7 +27,7 @@ export function skillRefs(value: unknown): { name: string; weight?: number }[] {
   );
 }
 const component = (
-  score: number,
+  score: number | null,
   details: string,
   status: "known" | "unknown" = "known",
 ) => ({ score, details, status });
@@ -35,6 +35,7 @@ export function matchJob(
   profile: MatchProfile | null,
   skills: string[],
   job: MatchJob,
+  hasResume = false,
 ) {
   const names = new Set(skills.map(normalize));
   const required = skillRefs(job.requiredSkills);
@@ -55,7 +56,7 @@ export function matchJob(
   const total = refs.reduce((sum, s) => sum + s.weight, 0);
   const skillScore = total
     ? Math.round((100 * matched.reduce((sum, s) => sum + s.weight, 0)) / total)
-    : 50;
+    : null;
   const levels: Record<string, number> = { junior: 0, mid: 2, senior: 5 };
   const level = job.experienceLevel ? normalize(job.experienceLevel) : "";
   const numeric = /^\d+(?:\.\d+)?(?:\s*(?:سال|years?|\+))?$/.test(level)
@@ -75,7 +76,7 @@ export function matchJob(
             : Math.round((100 * userYears) / years),
           `${userYears} سال سابقه؛ نیاز آگهی ${years} سال`,
         )
-      : component(50, "سابقه موردنیاز یا سابقه شما مشخص نیست.", "unknown");
+      : component(null, "سابقه موردنیاز یا سابقه شما مشخص نیست.", "unknown");
   const city = (s: string) =>
     normalize(s) === "tehran" ? "تهران" : normalize(s);
   const location =
@@ -88,7 +89,7 @@ export function matchJob(
               ? "شهر با ترجیح شما منطبق است."
               : "شهر با ترجیح شما متفاوت است.",
           )
-        : component(50, "شهر مشخص نیست.", "unknown");
+        : component(null, "شهر مشخص نیست.", "unknown");
   const workType =
     profile?.workType && job.workType
       ? component(
@@ -97,13 +98,13 @@ export function matchJob(
             ? "نوع همکاری با ترجیح شما منطبق است."
             : "نوع همکاری با ترجیح شما متفاوت است.",
         )
-      : component(50, "نوع همکاری مشخص نیست.", "unknown");
+      : component(null, "نوع همکاری مشخص نیست.", "unknown");
   const salary = !profile?.desiredSalary
-    ? component(50, "حداقل حقوق شما مشخص نیست.", "unknown")
+    ? component(null, "حداقل حقوق شما مشخص نیست.", "unknown")
     : job.salaryMin == null ||
         job.currency !== "TOMAN" ||
         job.salaryPeriod !== "MONTHLY"
-      ? component(50, "حقوق ماهانه قابل مقایسه اعلام نشده است.", "unknown")
+      ? component(null, "حقوق ماهانه قابل مقایسه اعلام نشده است.", "unknown")
       : component(
           Math.min(
             100,
@@ -115,28 +116,59 @@ export function matchJob(
         );
   const breakdown = {
     skills: {
-      score: skillScore,
+      score: names.size ? skillScore : null,
       matched: matched.map((s) => s.name),
       missing: missing.map((s) => s.name),
-      status: total ? "known" : "unknown",
+      status: total && names.size ? "known" : "unknown",
     },
     experience,
     location,
     workType,
     salary,
   };
-  const matchScore = Math.round(
-    skillScore * 0.6 +
-      experience.score * 0.2 +
-      location.score * 0.05 +
-      workType.score * 0.05 +
-      salary.score * 0.1,
-  );
+  const reason = !hasResume
+    ? "RESUME_REQUIRED"
+    : !profile || !names.size || userYears == null
+      ? "PROFILE_REQUIRED"
+      : !total || years == null
+        ? "JOB_REQUIREMENTS_UNKNOWN"
+        : null;
+  const components = [
+    [breakdown.skills.score, 60],
+    [experience.score, 20],
+    [location.score, 5],
+    [workType.score, 5],
+    [salary.score, 10],
+  ] as const;
+  const known = components.filter(([score]) => score != null);
+  const evidenceCoverage = known.reduce((sum, [, weight]) => sum + weight, 0);
+  const matchScore =
+    reason || !evidenceCoverage
+      ? null
+      : Math.round(
+          known.reduce((sum, [score, weight]) => sum + score! * weight, 0) /
+            evidenceCoverage,
+        );
+  const unavailable =
+    reason === "RESUME_REQUIRED"
+      ? "هنوز رزومه‌ای ذخیره نکرده‌اید؛ درصد تطابق محاسبه نشده است."
+      : reason === "PROFILE_REQUIRED"
+        ? "مهارت‌ها و سابقه واقعی خود را تکمیل کنید؛ اطلاعات کافی برای تطابق نداریم."
+        : "نیازمندی‌های مهارت یا سابقه آگهی مشخص نیست؛ درصد قابل اتکایی نداریم.";
   return {
     matchScore,
+    status: reason
+      ? "insufficient_data"
+      : evidenceCoverage < 100
+        ? "partial"
+        : "ready",
+    reason,
+    evidenceCoverage: reason ? 0 : evidenceCoverage,
     breakdown,
-    skillGaps: missing.map((s) => s.name),
-    explanation: `${matched.length} مهارت منطبق است. ${experience.details} ${location.details} ${workType.details} ${salary.details}`,
+    skillGaps: reason ? [] : missing.map((s) => s.name),
+    explanation: reason
+      ? unavailable
+      : `${matched.length} مهارت منطبق است. ${experience.details} ${location.details} ${workType.details} ${salary.details}`,
     weights: {
       skills: 60,
       experience: 20,

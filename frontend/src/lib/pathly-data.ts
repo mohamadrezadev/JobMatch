@@ -103,11 +103,18 @@ export function toPathlyJob(job: Job): PathlyJob {
     locationText: `${job.location ?? "شهر اعلام نشده"} (${work})`,
     type: job.experienceLevel ?? "سطح تجربه اعلام نشده",
     salary,
-    score: job.match?.matchScore,
+    score:
+      typeof job.match?.matchScore === "number"
+        ? job.match.matchScore
+        : undefined,
     matchedSkills:
-      job.match?.breakdown.skills.matched ??
-      job.requiredSkills.map((skill) => skill.name),
-    missingSkills: job.match?.breakdown.skills.missing ?? [],
+      (typeof job.match?.matchScore === "number"
+        ? job.match.breakdown.skills.matched
+        : undefined) ?? job.requiredSkills.map((skill) => skill.name),
+    missingSkills:
+      typeof job.match?.matchScore === "number"
+        ? job.match.breakdown.skills.missing
+        : [],
     description: job.description ?? "شرح موقعیت در منبع اعلام نشده است.",
     isRemote: job.workType === "Remote",
     isHybrid: job.workType === "Hybrid",

@@ -8,7 +8,9 @@ export type ChatIntent =
   | "GENERAL_CAREER_QUESTION";
 export interface SearchContext {
   targetRoles: string[];
+  requestedCount?: number;
   preferredSkills?: string[];
+  requiredSkills?: string[];
   excludedSkills?: string[];
   workTypes?: Array<"Remote" | "Hybrid" | "OnSite">;
   minimumSalary?: number;

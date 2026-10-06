@@ -5,6 +5,7 @@ import apiClient from "@/lib/api-client";
 import { unwrap } from "@/lib/pathly-data";
 import { useAuthStore } from "@/stores/useAuthStore";
 import type { Job } from "@/types/job";
+import { Icon } from "./Icon";
 interface DashboardData {
   profileCompletion: number;
   resumeCount: number;
@@ -65,12 +66,28 @@ export function DashboardView() {
     );
   if (!data) return <p role="status">در حال دریافت داشبورد…</p>;
   const box =
-    "rounded-2xl border border-slate-200 bg-light-surface p-5 dark:border-dark-border dark:bg-dark-surface";
+    "min-w-0 break-words rounded-3xl border border-slate-200 bg-light-surface p-5 sm:p-6 dark:border-dark-border dark:bg-dark-surface";
   return (
     <section className="space-y-6">
-      <h1 className="text-2xl font-bold">
-        سلام {user?.firstName}، مسیر شغلی شما
-      </h1>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="mb-2 text-xs font-semibold text-brand-500">
+            فضای کاری شخصی
+          </p>
+          <h1 className="text-2xl font-black">
+            سلام {user?.firstName}، مسیر شغلی شما
+          </h1>
+          <p className="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
+            گفتگوها، فرصت‌های منتخب و اطلاعات شغلی‌ات را از همین‌جا دنبال کن.
+          </p>
+        </div>
+        <Link
+          href="/chat"
+          className="inline-flex items-center gap-2 rounded-2xl bg-brand-500 px-5 py-3 text-xs font-bold text-white"
+        >
+          <Icon name="comments" /> ادامه با دستیار
+        </Link>
+      </header>
       <div className="grid gap-4 sm:grid-cols-3">
         {[
           ["تکمیل پروفایل", `${data.profileCompletion}٪`],
@@ -83,14 +100,34 @@ export function DashboardView() {
           </div>
         ))}
       </div>
+      {!data.resumeCount && (
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-brand-500/20 bg-brand-500/5 p-5">
+          <div>
+            <h2 className="text-sm font-bold">
+              برای تطابق شخصی، رزومه‌ات را بساز
+            </h2>
+            <p className="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
+              فعلاً درصد تطابقی نمایش نمی‌دهیم. می‌توانی گفتگو و جستجوی آگهی را
+              ادامه بدهی.
+            </p>
+          </div>
+          <Link href="/profile" className="text-xs font-bold text-brand-500">
+            افزودن اطلاعات واقعی <Icon name="arrow-left" />
+          </Link>
+        </div>
+      )}
       {data.profileCompletion < 100 && (
         <Link href="/onboarding" className="block text-brand-500">
           پروفایل خود را تکمیل کنید.
         </Link>
       )}
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
         <div className={box}>
-          <h2 className="mb-4 font-bold">پیشنهادهای مناسب شما</h2>
+          <h2 className="mb-4 font-bold">
+            {data.resumeCount
+              ? "پیشنهادهای مناسب شما"
+              : "فرصت‌های تازه برای بررسی"}
+          </h2>
           {data.recommendations.length ? (
             data.recommendations.map((job) => (
               <Link
@@ -100,7 +137,10 @@ export function DashboardView() {
               >
                 <strong>{job.title}</strong>
                 <p>
-                  {job.company} — تطابق {job.match?.matchScore}٪
+                  {job.company}
+                  {typeof job.match?.matchScore === "number"
+                    ? ` — تطابق ${job.match.matchScore}٪`
+                    : " — تطابق هنوز محاسبه نشده"}
                 </p>
               </Link>
             ))
@@ -160,7 +200,7 @@ export function DashboardView() {
           )}
         </div>
       </div>
-      <div className="flex gap-4">
+      <div className="flex flex-wrap gap-4">
         <Link href="/resume">رزومه‌ها</Link>
         <Link href="/jobs">همه فرصت‌ها</Link>
         <Link href="/settings">ترجیحات شغلی</Link>

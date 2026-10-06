@@ -53,7 +53,7 @@ module.exports = (async () => {
             },
             accessToken: "browser-fixture",
             isAuthenticated: true,
-            isProfileComplete: true,
+            isProfileComplete: false,
           },
         }),
       );
@@ -73,8 +73,8 @@ module.exports = (async () => {
       records = [];
     const preferences = {
       searchContext: {
-        targetRoles: ["Backend Developer"],
-        preferredSkills: ["Node.js"],
+        targetRoles: ["متخصص طراحی خدمات"],
+        preferredSkills: [],
         workTypes: ["Remote"],
         minimumSalary: 20000000,
       },
@@ -82,7 +82,7 @@ module.exports = (async () => {
     };
     const job = {
       id: randomUUID(),
-      title: "Backend Developer — browser fixture",
+      title: "متخصص طراحی خدمات — browser fixture",
       company: "Test company",
       location: "Tehran",
       workType: "Remote",
@@ -92,7 +92,7 @@ module.exports = (async () => {
       salaryPeriod: "MONTHLY",
       source: "jobinja.ir",
       sourceUrl: "https://jobinja.ir/jobs/browser-fixture",
-      requiredSkills: ["Node.js"],
+      requiredSkills: [],
       preferredSkills: [],
       warnings: [],
     };
@@ -126,15 +126,21 @@ module.exports = (async () => {
     let createCount = 0,
       streamCount = 0,
       replayCursor = 0,
+      replayReleased = false,
       releaseReplay;
     const gate = new Promise((resolve) => {
-      releaseReplay = resolve;
+      releaseReplay = () => {
+        replayReleased = true;
+        resolve();
+      };
     });
     await page.route("**/api/**", async (route) => {
       const request = route.request(),
         path = new URL(request.url()).pathname;
       if (process.env.JOBMATCH_BROWSER_DEBUG === "true")
         console.log("Fixture request:", path);
+      if (path === "/api/users/profile")
+        return json(route, { isProfileComplete: false });
       if (path === "/api/chat/runs" && request.method() === "POST") {
         const body = request.postDataJSON(),
           id = randomUUID(),
@@ -178,6 +184,15 @@ module.exports = (async () => {
           );
         else
           events.push(
+            event(id, 5, "agent.started", { targetValidJobs: 5, maxSteps: 4 }),
+            event(id, 6, "agent.planning", { step: 1 }),
+            event(id, 7, "agent.decision", {
+              step: 1,
+              action: "SEARCH_SOURCES",
+              sources: ["jobinja.ir", "jobvision.ir"],
+              reasonCode: "INITIAL_SEARCH",
+              reasoning: "PRIVATE_REASONING_MUST_NOT_RENDER",
+            }),
             event(id, 5, "source.started", { source: "jobinja.ir" }),
             event(id, 6, "job.accepted", { job }),
             event(id, 7, "source.completed", {
@@ -205,6 +220,36 @@ module.exports = (async () => {
             }),
             event(id, 10, "run.completed", { partial: true }),
           );
+        if (createCount !== 2) {
+          const completion = events.findIndex(
+            (e) => e.type === "search.completed",
+          );
+          events.splice(
+            completion,
+            0,
+            event(id, 0, "agent.observation", {
+              step: 1,
+              totalValidJobs: 1,
+              uncertainJobCount: 0,
+            }),
+            event(id, 0, "agent.planning", { step: 2 }),
+            event(id, 0, "agent.decision", {
+              step: 2,
+              action: "SEARCH_SOURCES",
+              sources: ["irantalent.com", "e-estekhdam.com"],
+              reasonCode: "SOURCE_FAILURE_RECOVERY",
+            }),
+            event(id, 0, "agent.completed", {
+              reasonCode: "SOURCES_EXHAUSTED",
+              validJobCount: 1,
+              partial: true,
+            }),
+          );
+        }
+        events.forEach((e, index) => {
+          e.sequence = index + 1;
+          e.id = `${id}-${e.sequence}`;
+        });
         records.push({
           id,
           message: retry?.message ?? body.message,
@@ -223,14 +268,14 @@ module.exports = (async () => {
         if (record.id === records[0].id && streamCount === 1)
           return route.fulfill({
             contentType: "text/event-stream",
-            body: sse(record.events.slice(0, 6)),
+            body: sse(record.events.slice(0, 9)),
           });
-        if (record.id === records[0].id && after === 6) {
+        if (record.id === records[0].id && after === 9) {
           replayCursor = after;
           await gate;
           return route.fulfill({
             contentType: "text/event-stream",
-            body: sse(record.events.slice(5)),
+            body: sse(record.events.slice(8)),
           });
         }
         return route.fulfill({
@@ -250,7 +295,10 @@ module.exports = (async () => {
           route,
           records.map((r) => ({
             ...r,
-            events: r.events.map((e) => ({ ...e, createdAt: e.timestamp })),
+            events: (r.id === records[0].id && !replayReleased
+              ? r.events.slice(0, 9)
+              : r.events
+            ).map((e) => ({ ...e, createdAt: e.timestamp })),
           })),
         );
       if (path === `/api/chat/conversations/${conversationId}`)
@@ -263,16 +311,26 @@ module.exports = (async () => {
     await page.goto(base + "/chat");
     await expect(
       page.getByRole("heading", {
-        name: "دستیار هوشمند شغلی جاب مچ",
+        name: "دستیار هوشمند شغلی کارمچ",
         exact: true,
       }),
     ).toBeVisible();
     await expect(chat.input()).toBeEnabled();
-    await chat.send("کار بک‌اند Node دورکار بالای ۲۰ میلیون");
+    await chat.send("کار متخصص طراحی خدمات دورکار بالای ۲۰ میلیون می‌خوام");
     await expect(page.getByRole("heading", { name: job.title })).toBeVisible();
     await expect(chat.input()).toBeDisabled();
     await expect(chat.activity()).toContainText("در حال جستجو");
-    await expect.poll(() => replayCursor).toBe(6);
+    await expect(chat.activity()).toContainText("شروع جستجو در منابع منتخب");
+    await expect(chat.activity()).not.toContainText(
+      "PRIVATE_REASONING_MUST_NOT_RENDER",
+    );
+    await expect.poll(() => replayCursor).toBe(9);
+    assert.equal(createCount, 1);
+    await expect(page).toHaveURL(new RegExp(`conversation=${conversationId}`));
+    await page.reload();
+    await expect(chat.activity()).toContainText("شروع جستجو در منابع منتخب");
+    await expect(page.getByRole("heading", { name: job.title })).toBeVisible();
+    await expect(chat.input()).toBeDisabled();
     assert.equal(createCount, 1);
     releaseReplay();
     await expect(chat.input()).toBeEnabled();
@@ -282,6 +340,8 @@ module.exports = (async () => {
       .getByRole("button", { name: /مشاهده جزئیات/ })
       .click();
     await expect(chat.activity()).toContainText("بعضی منابع کامل بررسی نشدند");
+    await expect(chat.activity()).toContainText("یکی از منابع پاسخ کامل نداد");
+    await expect(chat.activity()).toContainText("irantalent.com");
     await chat.send("حداقل ۲۵ میلیون");
     await page
       .getByRole("button", { name: "تلاش دوباره", exact: true })
@@ -297,6 +357,14 @@ module.exports = (async () => {
       .getByLabel("گفتگوهای قبلی", { exact: true })
       .selectOption(conversationId);
     await expect(chat.activity()).toHaveCount(3);
+    await chat
+      .activity()
+      .first()
+      .getByRole("button", { name: /مشاهده جزئیات/ })
+      .click();
+    await expect(chat.activity().first()).toContainText(
+      "یکی از منابع پاسخ کامل نداد",
+    );
     assert.equal(createCount, 3);
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(chat.input()).toBeVisible();
@@ -308,7 +376,7 @@ module.exports = (async () => {
     );
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: live result before completion, Bearer SSE, reconnect cursor, deduplication, partial failure, retry without duplicate messages, history restoration and mobile layout (browser fixtures).",
+      "PASS: agent summaries, hidden reasoning, Refresh during search, live result before completion, Bearer SSE, reconnect cursor, deduplication, partial failure, retry without duplicate messages, history restoration and mobile layout (browser fixtures).",
     );
   } finally {
     await browser.close();

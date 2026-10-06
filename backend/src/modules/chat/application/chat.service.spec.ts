@@ -24,6 +24,12 @@ describe("Chat application", () => {
     repository.saveTurn.mockResolvedValue(previous);
     service = new ChatService(repository, new ContextService());
   });
+  it("makes an arbitrary nontechnical position ready for discovery", async () => {
+    const result = await service.send("owner", "کار حسابدار تهران می‌خوام");
+    expect(result.readyForSearch).toBe(true);
+    expect(result.intent).toBe("JOB_SEARCH");
+    expect(result.searchContext.targetRoles).toEqual(["حسابدار"]);
+  });
   it("starts from empty context and persists a message pair with role-only readiness", async () => {
     const result = await service.send("owner", "Backend");
     expect(repository.get).not.toHaveBeenCalled();
@@ -40,7 +46,7 @@ describe("Chat application", () => {
   it("asks only for a missing role", async () => {
     const result = await service.send("owner", "دورکار");
     expect(result.readyForSearch).toBe(false);
-    expect(result.message).toContain("نقش");
+    expect(result.message).toContain("عنوان شغلی");
   });
   it("makes the reported .NET request ready for automatic frontend discovery", async () => {
     const result = await service.send(

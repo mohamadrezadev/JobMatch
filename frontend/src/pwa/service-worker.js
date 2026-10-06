@@ -7,9 +7,7 @@ const PUBLIC_ASSETS = [
   "/brand/karmatch-icon-192.png",
   "/brand/karmatch-icon-512.png",
   "/brand/karmatch-icon-180.png",
-  "/brand/karmatch-full.png",
-  "/brand/karmatch-wordmark.png",
-  "/brand/karmatch-vertical.png",
+  "/brand/karmatch-mark.svg",
 ];
 const MAX_ENTRIES = 80;
 
@@ -94,16 +92,14 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request).catch(async () =>
-        (await caches.open(CACHE_NAME))
-          .match(OFFLINE_URL)
-          .then(
-            (response) =>
-              response ||
-              new Response("اتصال اینترنت قطع است.", {
-                status: 503,
-                headers: { "Content-Type": "text/plain; charset=utf-8" },
-              }),
-          ),
+        (await caches.open(CACHE_NAME)).match(OFFLINE_URL).then(
+          (response) =>
+            response ||
+            new Response("اتصال اینترنت قطع است.", {
+              status: 503,
+              headers: { "Content-Type": "text/plain; charset=utf-8" },
+            }),
+        ),
       ),
     );
   } else if (cacheableRequest(request, url)) {

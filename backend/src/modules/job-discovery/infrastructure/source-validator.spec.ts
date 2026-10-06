@@ -7,6 +7,32 @@ jest.mock("node:https", () => ({ request: jest.fn() }));
 describe("Strict job sources", () => {
   const validator = new SourceValidator(["jobvision.ir", "jobinja.ir"]);
   beforeEach(() => jest.resetAllMocks());
+  it.each([
+    ["https://jobinja.ir/jobs/1", "SOURCE_UNAVAILABLE"],
+    [
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/token",
+      "SEARCH_LINK_UNRESOLVED",
+    ],
+  ])(
+    "classifies transport failures after public DNS validation for remote fallback: %s",
+    async (url, code) => {
+      (lookup as jest.Mock).mockResolvedValue([
+        { address: "8.8.8.8", family: 4 },
+      ]);
+      (request as jest.Mock).mockImplementation(() => {
+        const req = Object.assign(new EventEmitter(), {
+          end: () => req.emit("error", new Error("ECONNRESET")),
+          destroy: jest.fn(),
+        });
+        return req;
+      });
+      await expect(
+        validator.resolveSearch(url, new AbortController().signal),
+      ).rejects.toMatchObject({ code });
+      expect(request).toHaveBeenCalledTimes(1);
+      expect((request as jest.Mock).mock.calls[0][1].timeout).toBe(2000);
+    },
+  );
   it("accepts only the exact HTTPS Google grounding route as a transit candidate", () => {
     expect(
       validator.grounding(

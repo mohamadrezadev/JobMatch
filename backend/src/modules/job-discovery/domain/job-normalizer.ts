@@ -147,7 +147,12 @@ export function normalizeJob(
   }
   const posting = candidates[0];
   if (!posting)
-    return jobinjaMarkdown(content, url) ?? labeledJob(content, url);
+    return (
+      jobinjaMarkdown(content, url) ??
+      jobinjaText(content, url) ??
+      iranTalentText(content, url) ??
+      labeledJob(content, url)
+    );
   const title = plainText(posting.title),
     company = plainText(object(posting.hiringOrganization).name);
   if (!title || !company || title.length > 300 || company.length > 300)
@@ -245,6 +250,100 @@ function jobinjaMarkdown(content: string, url: string): DiscoveredJob | null {
       .slice(0, 50),
     preferredSkills: [],
     source: "jobinja.ir",
+    sourceUrl: url,
+    publishedAt: null,
+  };
+}
+// Rendered text from the same vacancy can arrive without Markdown headings.
+function jobinjaText(content: string, url: string): DiscoveredJob | null {
+  const target = new URL(url);
+  if (
+    !/^(?:www\.)?jobinja\.ir$/.test(target.hostname) ||
+    !/^\/companies\/[^/]+\/jobs\/[^/]+/.test(target.pathname)
+  )
+    return null;
+  const main = content.split(/^مشاغل مشابه\s*$/m)[0];
+  if (explicitlyClosed(main)) return null;
+  const titleMatch = /^استخدام[^\n]+$/m.exec(main);
+  const companyMatch = /^([^\n]+)\n\s*\|\s*\n([^\n]+)$/m.exec(
+    main.slice(0, titleMatch?.index ?? 0),
+  );
+  if (!titleMatch || !companyMatch) return null;
+  const labels =
+    "دسته‌بندی شغلی|موقعیت مکانی|نوع همکاری|حداقل سابقه کار|حقوق|شرح موقعیت شغلی|معرفی شرکت|مهارت[‌ ]?های مورد نیاز|جنسیت|وضعیت نظام وظیفه|حداقل مدرک تحصیلی|ثبت آگهی استخدام در جابینجا";
+  const section = (label: string) =>
+    new RegExp(
+      `^${label}\\s*\\n([\\s\\S]*?)(?=^(?:${labels})\\s*$|$(?![\\s\\S]))`,
+      "m",
+    )
+      .exec(main)?.[1]
+      .trim() ?? null;
+  const description = plainText(section("شرح موقعیت شغلی"));
+  const location = plainText(section("موقعیت مکانی"));
+  if (!description || !location) return null;
+  const title = plainText(titleMatch[0])!,
+    company = plainText(companyMatch[1])!;
+  if (title.length > 300 || company.length > 300) return null;
+  return {
+    title,
+    company,
+    location,
+    workType: workType(section("نوع همکاری")),
+    experienceLevel: plainText(section("حداقل سابقه کار")),
+    ...parseSalary(section("حقوق")),
+    description,
+    requiredSkills: (section("مهارت[‌ ]?های مورد نیاز") ?? "")
+      .split(/\r?\n/)
+      .map(plainText)
+      .filter(
+        (value): value is string => Boolean(value) && value!.length <= 100,
+      )
+      .slice(0, 50),
+    preferredSkills: [],
+    source: "jobinja.ir",
+    sourceUrl: url,
+    publishedAt: null,
+  };
+}
+function iranTalentText(content: string, url: string): DiscoveredJob | null {
+  const target = new URL(url);
+  if (
+    !/^(?:www\.)?irantalent\.com$/.test(target.hostname) ||
+    !/^\/(?:en\/)?job\/[^/]+\/\d+\/?$/.test(target.pathname) ||
+    explicitlyClosed(content)
+  )
+    return null;
+  const header =
+    /^#\s+([^\n]+)\n\s*\n[ \t]*([^\n]+?)\s+(Tehran|تهران)\s*\n\s*\n(?:Posted\b|[^\n]*منتشر شده)/im.exec(
+      content,
+    );
+  const description = plainText(
+    /^(?:Job Description|توضیحات)\s*\n([\s\S]*?)(?=^(?:Employment Type|نوع استخدام)\s*$)/m.exec(
+      content,
+    )?.[1],
+  );
+  if (!header || !description) return null;
+  const section = (label: string) =>
+    new RegExp(
+      `^(?:${label})\\s*\\n([\\s\\S]*?)(?=^(?:Job Category|Educations|Seniority|Details|گروه شغلی|تحصیلات|رده سازمانی|جزییات)\\s*$|$(?![\\s\\S]))`,
+      "m",
+    ).exec(content)?.[1];
+  const title = plainText(header[1])!,
+    company = plainText(header[2])!;
+  if (title.length > 300 || company.length > 300) return null;
+  return {
+    title,
+    company,
+    location: header[3],
+    workType: workType(section("Employment Type|نوع استخدام")),
+    experienceLevel: plainText(
+      section("Seniority|رده سازمانی")?.replace(/^\*\s*/gm, ""),
+    ),
+    ...parseSalary(null),
+    description,
+    requiredSkills: [],
+    preferredSkills: [],
+    source: "irantalent.com",
     sourceUrl: url,
     publishedAt: null,
   };

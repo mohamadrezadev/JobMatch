@@ -4,13 +4,113 @@ import { emptyContext } from "./conversation";
 describe("Career Copilot extraction", () => {
   const extractor = new ContextService();
   const run = (message: string) => extractor.extract(message, emptyContext());
+  it.each([
+    "دنبال شغل حسابداری میگردم توی تهران 5 تا اگهی برام پیدا کن",
+    "دنبال شغل حسابداری می‌گردم توی تهران ۵ تا آگهی برام پیدا کن",
+    "دنبال شغل حسابداری توی تهران ۵ تا آگهی پیدا کن",
+    "دنبال شغل حسابداری تهران 5 تا اگهی برام پیدا کن",
+  ])(
+    "separates the reported occupation from search instructions: %s",
+    (message) => {
+      expect(run(message)).toMatchObject({
+        intent: "JOB_SEARCH",
+        context: {
+          searchContext: { targetRoles: ["حسابداری"], locations: ["Tehran"] },
+        },
+      });
+    },
+  );
+  it.each([
+    ["کار حسابدار تهران می‌خوام", "حسابدار"],
+    ["یه کار مدیر محصول دورکار می‌خوام", "مدیر محصول"],
+    ["دنبال کار پرستار هستم", "پرستار"],
+    ["کارشناس فروش", "کارشناس فروش"],
+    ["عنوان شغلی: متخصص طراحی خدمات", "متخصص طراحی خدمات"],
+    ["کار کارشناس حقوق می‌خوام", "کارشناس حقوق"],
+    ["Product Manager", "product manager"],
+    ["I want a job as UX Researcher in Tehran", "ux researcher"],
+    ["I am looking for a Data Engineer role", "data engineer"],
+    ["Medical Device Technician", "medical device technician"],
+    ["DevOps Engineer remote", "devops engineer"],
+  ])(
+    "accepts an open job title without a developer allowlist: %s",
+    (message, role) => {
+      const result = run(message);
+      expect(result.intent).toBe("JOB_SEARCH");
+      expect(result.context.searchContext.targetRoles).toEqual([role]);
+      expect(result.context.candidateFacts.skills).toEqual([]);
+    },
+  );
+  it("keeps constraints around an arbitrary role and carries it across updates", () => {
+    const first = run(
+      "کار حسابدار تهران حضوری با حقوق حداقل ۳۰ میلیون می‌خوام",
+    ).context;
+    expect(first.searchContext).toMatchObject({
+      targetRoles: ["حسابدار"],
+      minimumSalary: 30000000,
+      locations: ["Tehran"],
+      workTypes: ["OnSite"],
+    });
+    expect(
+      extractor.extract("حداقل ۴۰ میلیون", first).context.searchContext,
+    ).toMatchObject({ targetRoles: ["حسابدار"], minimumSalary: 40000000 });
+  });
+  it("does not mistake a technology for an unknown occupational role", () => {
+    expect(
+      run("کار Data Engineer با مهارت Python می‌خوام").context.searchContext,
+    ).toMatchObject({
+      targetRoles: ["data engineer"],
+      requiredSkills: ["Python"],
+    });
+  });
+  it("drops requirements belonging to the old occupation when the role changes", () => {
+    const first = run("Backend .NET").context;
+    expect(
+      extractor.extract("کار حسابدار می‌خوام", first).context.searchContext,
+    ).toMatchObject({
+      targetRoles: ["حسابدار"],
+      requiredSkills: [],
+      preferredSkills: [],
+    });
+    expect(first.searchContext.requiredSkills).toEqual([".NET"]);
+  });
+  it.each([
+    "سلام",
+    "فقط دورکار",
+    "Remote or Hybrid",
+    "من حسابدار هستم",
+    "حقوق مهم نیست",
+    "حداقل ۲۰ میلیون",
+    "تهران",
+  ])(
+    "does not invent a role from a greeting, fact or constraint: %s",
+    (message) => {
+      expect(run(message).context.searchContext.targetRoles).toEqual([]);
+    },
+  );
+  it("keeps required technology across turns and removes it when excluded", () => {
+    const first = run("Backend .NET تهران Junior").context;
+    expect(first.searchContext).toMatchObject({
+      targetRoles: ["Backend Developer"],
+      requiredSkills: [".NET"],
+      experienceLevel: "Junior",
+    });
+    const second = extractor.extract("حداقل ۶۰ میلیون", first).context;
+    expect(second.searchContext.requiredSkills).toEqual([".NET"]);
+    expect(
+      extractor.extract("بدون .NET", second).context.searchContext
+        .requiredSkills,
+    ).toEqual([]);
+    expect(first.searchContext.minimumSalary).toBeUndefined();
+  });
   it("recognizes the reported Persian backend/dotnet request and all its constraints", () => {
     const { context, intent } = run(
       "یه کار بکند دات نت با حقوق 60 تومن حضوری تهران",
     );
     expect(intent).toBe("JOB_SEARCH");
     expect(context.searchContext).toMatchObject({
-      targetRoles: ["Backend Developer", ".NET Developer"],
+      targetRoles: ["Backend Developer"],
+      requiredSkills: [".NET"],
       preferredSkills: [".NET"],
       minimumSalary: 60000000,
       currency: "TOMAN",
@@ -167,6 +267,18 @@ describe("Career Copilot extraction", () => {
 
 describe("Conservative extraction boundaries", () => {
   const extractor = new ContextService();
+  it("keeps only the occupation when onsite-only and salary constraints follow it", () => {
+    expect(
+      extractor.extract(
+        "حسابدار فقط حضوری، حداقل حقوق ۳۰ میلیون تهران",
+        emptyContext(),
+      ).context.searchContext,
+    ).toMatchObject({
+      targetRoles: ["حسابدار"],
+      workTypes: ["OnSite"],
+      minimumSalary: 30000000,
+    });
+  });
   it.each([
     "برای آگهی Node رزومه بساز",
     "جزئیات آگهی React",

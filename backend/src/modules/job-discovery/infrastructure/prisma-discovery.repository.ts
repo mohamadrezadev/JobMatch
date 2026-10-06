@@ -66,10 +66,12 @@ export class PrismaDiscoveryRepository extends DiscoveryRepository {
       where: { id: conversationId, userId },
     });
     if (!conversation) throw new DiscoveryError("CONVERSATION_NOT_FOUND", 404);
+    const profile = await this.prisma.profile.findUnique({ where: { userId } });
     return {
       intent: (conversation.context as unknown as ConversationContext)
         .searchContext,
       version: conversation.version,
+      rankingExperienceLevel: profile?.experienceLevel ?? undefined,
     };
   }
   async latest(userId: string, conversationId: string) {

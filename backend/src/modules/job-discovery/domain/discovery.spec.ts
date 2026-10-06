@@ -3,6 +3,7 @@ import {
   deduplicate,
   filterAndRank,
   queryFor,
+  salaryConfirmed,
 } from "./discovery";
 import { normalizeJob, parseSalary, workType } from "./job-normalizer";
 
@@ -10,6 +11,110 @@ const html = (overrides = {}) =>
   `<script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting", title: "Backend Node.js Developer", hiringOrganization: { name: "شرکت تست" }, jobLocationType: "TELECOMMUTE", jobLocation: { address: { addressLocality: "تهران" } }, baseSalary: { currency: "IRR", value: { minValue: 250000000, maxValue: 350000000, unitText: "MONTH" } }, skills: ["Node.js"], description: "<p>توسعه بک‌اند</p>", ...overrides })}</script>`;
 const url = "https://jobvision.ir/jobs/1";
 describe("Iranian job rules", () => {
+  it.each([
+    ["حسابدار", "حسابدار ارشد", "کارشناس فروش"],
+    ["حسابداری", "حسابدار", "کارشناس فروش"],
+    ["کارشناس حسابداری", "کارشناس حسابدار", "کارشناس فروش"],
+    ["حسابدار", "کارشناس حسابداری", "کارشناس فروش"],
+    ["مدیر محصول", "مدیر ارشد محصول", "مدیر فروش"],
+    ["UX Researcher", "Senior UX / Researcher", "UX Designer"],
+    ["Data Engineer", "Engineer, Data", "Data Analyst"],
+    [
+      "Medical Device Technician",
+      "Medical Device Service Technician",
+      "Medical Sales Representative",
+    ],
+  ])(
+    "queries and filters arbitrary occupations: %s",
+    (role, matchingTitle, unrelatedTitle) => {
+      const base = normalizeJob(html(), url)!;
+      const matching = { ...base, title: matchingTitle };
+      const intent = { targetRoles: [role] };
+      expect(queryFor("jobinja.ir", intent)).toContain(role);
+      expect(
+        filterAndRank([matching, { ...base, title: unrelatedTitle }], intent),
+      ).toEqual([matching]);
+    },
+  );
+  it("requires both Backend and explicitly requested .NET technology", () => {
+    const base = normalizeJob(html(), url)!;
+    const correct = {
+      ...base,
+      title: "Backend Developer",
+      requiredSkills: [".NET"],
+    };
+    expect(
+      filterAndRank(
+        [correct, base, { ...correct, title: "Frontend .NET Developer" }],
+        {
+          targetRoles: ["Backend Developer"],
+          requiredSkills: [".NET"],
+        },
+      ),
+    ).toEqual([correct]);
+  });
+  it("hard filters explicit experience, including unknown experience", () => {
+    const base = normalizeJob(html(), url)!;
+    const junior = { ...base, experienceLevel: "جونیور" };
+    expect(
+      filterAndRank([base, junior, { ...base, experienceLevel: "Senior" }], {
+        targetRoles: ["Backend Developer"],
+        experienceLevel: "Junior",
+      }),
+    ).toEqual([junior]);
+  });
+  it("uses profile experience only for ranking when no explicit level exists", () => {
+    const base = normalizeJob(html(), url)!;
+    const junior = { ...base, experienceLevel: "Junior" };
+    const senior = { ...base, experienceLevel: "Senior" };
+    expect(
+      filterAndRank(
+        [senior, base, junior],
+        { targetRoles: ["Backend Developer"] },
+        "Junior",
+      ),
+    ).toEqual([junior, senior, base]);
+  });
+  it("accepts unknown Remote city but requires city matching for OnSite and Hybrid", () => {
+    const base = normalizeJob(html(), url)!;
+    const remote = { ...base, location: null };
+    expect(
+      filterAndRank(
+        [
+          remote,
+          { ...remote, workType: "OnSite" },
+          { ...remote, workType: "Hybrid" },
+          { ...base, workType: "Hybrid" },
+        ],
+        {
+          targetRoles: ["Backend Developer"],
+          locations: ["Tehran"],
+        },
+      ),
+    ).toEqual([remote, { ...base, workType: "Hybrid" }]);
+  });
+  it("counts only guaranteed salary thresholds, while retaining uncertain jobs for display", () => {
+    const base = normalizeJob(html(), url)!;
+    const intent = {
+      targetRoles: ["Backend Developer"],
+      minimumSalary: 20000000,
+    };
+    expect(salaryConfirmed(base, intent)).toBe(true);
+    for (const uncertain of [
+      { ...base, salaryMin: null },
+      { ...base, salaryPeriod: null },
+      { ...base, currency: null },
+    ]) {
+      expect(filterAndRank([uncertain], intent)).toHaveLength(1);
+      expect(salaryConfirmed(uncertain, intent)).toBe(false);
+    }
+    expect(
+      salaryConfirmed(
+        { ...base, salaryMin: null },
+        { targetRoles: ["Backend Developer"] },
+      ),
+    ).toBe(true);
+  });
   it("matches Persian dotnet job titles for a .NET request", () => {
     const job = normalizeJob(
       html({ title: "برنامه نویس دات نت", jobLocationType: "ON_SITE" }),

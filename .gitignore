@@ -62,3 +62,7 @@ frontend/test-results/brand/
 # Build-generated service worker and local PWA screenshots
 frontend/public/sw.js
 frontend/test-results/pwa/
+# Temporary diagnostics and browser test output
+artifacts/
+frontend/test-results/
+*.tsbuildinfo

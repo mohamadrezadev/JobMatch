@@ -36,7 +36,7 @@ export class AgentsJobContentExtractor extends JobContentExtractor {
           },
         ],
       },
-      { signal, timeout: 15000 },
+      { signal, timeout: 4000, maxRetries: 0 },
     );
     let raw: Record<string, unknown>;
     try {

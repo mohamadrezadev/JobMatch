@@ -8,6 +8,8 @@ import {
   normalizeText,
 } from "../domain/discovery";
 import { DiscoveryRepository, JobDiscoveryProvider } from "./discovery.ports";
+import { AgentSearchService } from "./agent-search.service";
+import { AgentPlannerService } from "./agent-planner.service";
 
 export interface LiveDiscovery {
   publish(type: string, data: Record<string, unknown>): Promise<void>;
@@ -27,15 +29,17 @@ export class JobDiscoveryService {
     private readonly repository: DiscoveryRepository,
     private readonly provider: JobDiscoveryProvider,
     private readonly totalTimeout = 60000,
+    private readonly agent = new AgentSearchService(
+      provider,
+      new AgentPlannerService(),
+    ),
   ) {}
   latest(userId: string, conversationId: string) {
     return this.repository.latest(userId, conversationId);
   }
   async search(userId: string, conversationId: string, live?: LiveDiscovery) {
-    const { intent, version } = await this.repository.context(
-      userId,
-      conversationId,
-    );
+    const { intent, version, rankingExperienceLevel } =
+      await this.repository.context(userId, conversationId);
     if (live && version !== live.contextVersion)
       throw new DiscoveryError("CONTEXT_CHANGED", 409);
     if (!intent.targetRoles.length)
@@ -62,6 +66,7 @@ export class JobDiscoveryService {
       };
     }
     const controller = new AbortController();
+    const deadline = Date.now() + this.totalTimeout;
     const timer = setTimeout(() => controller.abort(), this.totalTimeout);
     let sources: SourceReport[] | undefined;
     const identities = new Set<string>();
@@ -91,7 +96,7 @@ export class JobDiscoveryService {
     };
     try {
       await live?.publish("search.started", {});
-      const result = await this.provider.discover(
+      const result = await this.agent.search(
         intent,
         controller.signal,
         live
@@ -106,15 +111,24 @@ export class JobDiscoveryService {
               jobCandidate: accept,
             }
           : undefined,
+        live?.publish,
+        deadline,
+        rankingExperienceLevel,
       );
       sources = result.sources;
-      const jobs = deduplicate(filterAndRank(result.jobs, intent));
-      const partial = result.sources.some((source) => Boolean(source.error));
+      // A timed-out batch can leave a candidate save in flight. Drain it before
+      // publishing the terminal state so accepted events cannot arrive afterward.
+      await acceptance;
+      const jobs = deduplicate(
+        filterAndRank(result.jobs, intent, rankingExperienceLevel),
+      );
+      const partial = result.partial;
       if (
         !jobs.length &&
-        result.sources.every((source) => Boolean(source.error))
+        result.sources.every((source) => Boolean(source.error)) &&
+        !result.sources.some((source) => (source.evaluated ?? 0) > 0)
       )
-        throw new DiscoveryError("JOB_DISCOVERY_UNAVAILABLE", 503);
+        throw new DiscoveryError(result.failureCode, 503);
       const completed = await this.repository.complete(
         run.id,
         jobs,

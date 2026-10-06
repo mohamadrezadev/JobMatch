@@ -120,7 +120,7 @@ export class SourceValidator {
             {
               method: "GET",
               signal,
-              timeout: 8000,
+              timeout: 2000,
               lookup: (_hostname, options, callback) =>
                 options.all
                   ? callback(null, addresses)
@@ -139,7 +139,10 @@ export class SourceValidator {
           req.on("timeout", () => req.destroy(new Error("timeout")));
           req.end();
         },
-      );
+      ).catch((error) => {
+        if (signal.aborted) throw error;
+        throw new DiscoveryError("SEARCH_LINK_UNRESOLVED", 502);
+      });
       if (
         ![301, 302, 303, 307, 308].includes(response.status) ||
         !response.location
@@ -168,7 +171,7 @@ export class SourceValidator {
             {
               method: "HEAD",
               signal,
-              timeout: 8000,
+              timeout: 2000,
               lookup: (_hostname, options, callback) =>
                 options.all
                   ? callback(null, addresses)
@@ -185,7 +188,10 @@ export class SourceValidator {
           req.on("timeout", () => req.destroy(new Error("timeout")));
           req.end();
         },
-      );
+      ).catch((error) => {
+        if (signal.aborted) throw error;
+        throw new DiscoveryError("SOURCE_UNAVAILABLE", 502);
+      });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         if (!response.location)
           throw new DiscoveryError("SOURCE_REJECTED", 400);

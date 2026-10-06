@@ -11,14 +11,15 @@ import {
 } from "@/lib/guest-chat-client";
 
 const prompts = [
-  "کار بک‌اند Node دورکار می‌خوام",
-  "برای شروع دنبال کار فرانت‌اند هستم",
-  "Python بلدم و ۲ سال سابقه دارم",
+  "دنبال شغل حسابداری توی تهران می‌گردم",
+  "کار مدیر محصول دورکار می‌خوام",
+  "فقط حضوری، حداقل حقوق ۳۰ میلیون",
 ];
 export function GuestChat() {
   const [chat, setChat] = useState<GuestChatState | null>(null);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
+  const [submitted, setSubmitted] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const end = useRef<HTMLDivElement>(null);
@@ -65,14 +66,18 @@ export function GuestChat() {
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!draft.trim() || pending || loading || !chat || chat.authRequired)
+    await sendMessage(draft);
+  }
+  async function sendMessage(message: string) {
+    if (!message.trim() || pending || loading || !chat || chat.authRequired)
       return;
+    setSubmitted(message.trim());
     setPending(true);
     setError("");
     try {
       const response = await guestChatClient.post<{ data: GuestChatState }>(
         "/api/chat/guest/message",
-        { message: draft.trim() },
+        { message: message.trim() },
       );
       setChat(response.data.data);
       saveDraft("");
@@ -96,6 +101,7 @@ export function GuestChat() {
         );
     } finally {
       setPending(false);
+      setSubmitted("");
     }
   }
   return (
@@ -160,9 +166,77 @@ export function GuestChat() {
           </p>
         )}
         {pending && (
+          <article aria-label="پیام در حال ارسال" className="flex justify-end">
+            <p
+              dir="auto"
+              className="max-w-[90%] whitespace-pre-wrap rounded-2xl bg-brand-500 px-4 py-3 text-xs text-white"
+            >
+              {submitted}
+            </p>
+          </article>
+        )}
+        {pending && (
           <p role="status" className="text-xs text-brand-500">
-            در حال آماده‌کردن پاسخ…
+            در حال بررسی هدف و شرایطت؛ اگر عنوان شغلی مشخص باشد، منابع شغلی
+            همزمان جستجو می‌شوند…
           </p>
+        )}
+        {chat?.discovery && (
+          <section aria-label="نتایج جستجوی مهمان" className="space-y-3">
+            <h3 className="text-sm font-bold">فرصت‌های پیدا شده</h3>
+            {chat.discovery.error && (
+              <p role="alert" className="text-xs text-amber-600">
+                منابع جستجو پاسخ قابل استفاده ندادند؛ شرایطت حفظ شده است.
+              </p>
+            )}
+            {chat.discovery.sources.length > 0 && (
+              <p className="text-xs text-slate-500">
+                منابع بررسی‌شده:{" "}
+                {chat.discovery.sources
+                  .map((source) => source.source)
+                  .join(" · ")}
+              </p>
+            )}
+            {chat.discovery.jobs.map((job) => (
+              <article
+                key={job.sourceUrl}
+                className="space-y-2 rounded-xl border border-slate-200 p-3 text-xs dark:border-dark-border"
+              >
+                <h4 className="font-bold">{job.title}</h4>
+                <p>
+                  {job.company} · {job.location ?? "شهر اعلام نشده"} ·{" "}
+                  {job.workType
+                    ? { Remote: "دورکار", Hybrid: "هیبرید", OnSite: "حضوری" }[
+                        job.workType
+                      ]
+                    : "نوع حضور اعلام نشده"}
+                </p>
+                <p>
+                  {job.salaryMin != null || job.salaryMax != null
+                    ? `${[job.salaryMin, job.salaryMax]
+                        .filter((value) => value != null)
+                        .map((value) => value!.toLocaleString("fa-IR"))
+                        .join(
+                          " تا ",
+                        )} ${job.currency === "TOMAN" ? "تومان" : "واحد اعلام نشده"}${job.salaryPeriod === "MONTHLY" ? " در ماه" : ""}`
+                    : "حقوق اعلام نشده"}
+                </p>
+                {job.warnings.map((warning) => (
+                  <p key={warning} className="text-amber-600">
+                    {warning}
+                  </p>
+                ))}
+                <a
+                  href={job.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand-500"
+                >
+                  مشاهده آگهی اصلی
+                </a>
+              </article>
+            ))}
+          </section>
         )}
         <div ref={end} />
       </div>
@@ -179,6 +253,21 @@ export function GuestChat() {
           )}
         </div>
       )}
+      {chat &&
+        chat.context.searchContext.targetRoles.length > 0 &&
+        (!chat.discovery || chat.discovery.error) &&
+        !chat.authRequired && (
+          <button
+            type="button"
+            disabled={pending || loading}
+            onClick={() => void sendMessage("دوباره جستجو کن")}
+            className="mx-5 mb-3 rounded-xl bg-brand-500 px-4 py-3 text-xs font-bold text-white disabled:opacity-40"
+          >
+            {chat.discovery?.error
+              ? "تلاش دوباره برای جستجو"
+              : "جستجوی فرصت‌های شغلی"}
+          </button>
+        )}
       {!chat?.messages.length && (
         <div className="flex flex-wrap gap-2 px-5 pb-4">
           {prompts.map((prompt) => (
@@ -194,11 +283,6 @@ export function GuestChat() {
             </button>
           ))}
         </div>
-      )}
-      {chat && !chat.authRequired && chat.context.searchContext.targetRoles.length > 0 && (
-        <p className="mx-5 mb-4 rounded-xl bg-brand-500/5 p-4 text-xs leading-6 text-slate-500 dark:text-slate-400">
-          شرایط جستجویت آماده است. برای یافتن آگهی‌های واقعی، <Link href="/register" className="font-bold text-brand-500">حساب بساز</Link> یا <Link href="/login" className="font-bold text-brand-500">وارد شو</Link>؛ این گفتگو حفظ می‌شود.
-        </p>
       )}
       {chat?.authRequired && (
         <div
@@ -242,7 +326,7 @@ export function GuestChat() {
             onChange={(event) => saveDraft(event.target.value)}
             maxLength={4000}
             disabled={pending}
-            placeholder="مثلاً: کار بک‌اند دورکار با حداقل حقوق ۲۰ میلیون می‌خوام…"
+            placeholder="عنوان شغلی، شهر و شرایط دلخواهت را بنویس…"
             className="min-w-0 flex-1 resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-6 focus:border-brand-500 focus:outline-none dark:border-dark-border dark:bg-dark-surface"
           />
           <button
@@ -260,7 +344,7 @@ export function GuestChat() {
           {chat
             ? `${chat.remaining.toLocaleString("fa-IR")} پیام از ${chat.limit.toLocaleString("fa-IR")} پیام مهمان باقی مانده`
             : "۵ پیام برای شروع بدون حساب"}{" "}
-          · برای ادامه و نگهداری گفتگو، حساب بساز.
+          · تا پایان سهمیه می‌توانی گفتگو را ادامه بدهی.
         </p>
       </form>
     </section>

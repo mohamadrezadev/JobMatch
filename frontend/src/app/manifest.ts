@@ -11,8 +11,8 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     lang: "fa",
     dir: "rtl",
-    background_color: "#f8fbff",
-    theme_color: "#004bff",
+    background_color: "#0B111E",
+    theme_color: "#4569F5",
     icons: [
       {
         src: "/brand/karmatch-icon-192.png",

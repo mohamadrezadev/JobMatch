@@ -14,9 +14,14 @@ import { PrismaDiscoveryRepository } from "./infrastructure/prisma-discovery.rep
 import { SourceValidator } from "./infrastructure/source-validator";
 import { JobDiscoveryController } from "./presentation/job-discovery.controller";
 import { AgentsJobContentExtractor } from "./infrastructure/agents-job-content.extractor";
+import {
+  AgentPlannerService,
+  AGENT_SOURCES,
+} from "./application/agent-planner.service";
+import { AgentSearchService } from "./application/agent-search.service";
 
 @Module({
-  exports: [JobDiscoveryService],
+  exports: [JobDiscoveryService, AgentSearchService],
   imports: [PrismaModule],
   controllers: [JobDiscoveryController],
   providers: [
@@ -31,9 +36,7 @@ import { AgentsJobContentExtractor } from "./infrastructure/agents-job-content.e
         )
           .split(",")
           .map((domain) => domain.trim().toLowerCase())
-          .filter((domain) =>
-            /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(domain),
-          );
+          .filter((domain) => AGENT_SOURCES.includes(domain));
         const bounded = (key: string, fallback: number) =>
           Math.max(1000, Math.min(15000, Number(config.get(key)) || fallback));
         return new NineRouterJobDiscoveryProvider(
@@ -66,12 +69,55 @@ import { AgentsJobContentExtractor } from "./infrastructure/agents-job-content.e
       },
     },
     {
+      provide: AgentPlannerService,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        new AgentPlannerService(
+          config.get<string>("OPENAI_API_KEY")
+            ? new OpenAI({
+                apiKey: config.get<string>("OPENAI_API_KEY"),
+                baseURL: config.get<string>("OPENAI_BASE_URL") || undefined,
+                maxRetries: 0,
+              })
+            : undefined,
+          config.get<string>("AGENT_PLANNER_MODEL") ||
+            config.get<string>("OPENAI_MODEL") ||
+            "agents",
+        ),
+    },
+    {
+      provide: AgentSearchService,
+      inject: [JobDiscoveryProvider, AgentPlannerService, ConfigService],
+      useFactory: (
+        provider: JobDiscoveryProvider,
+        planner: AgentPlannerService,
+        config: ConfigService,
+      ) =>
+        new AgentSearchService(
+          provider,
+          planner,
+          (
+            config.get<string>("JOB_DISCOVERY_ALLOWED_DOMAINS") ??
+            INITIAL_SOURCES.join(",")
+          )
+            .split(",")
+            .map((source) => source.trim().toLowerCase())
+            .filter((source) => AGENT_SOURCES.includes(source)),
+        ),
+    },
+    {
       provide: JobDiscoveryService,
-      inject: [DiscoveryRepository, JobDiscoveryProvider, ConfigService],
+      inject: [
+        DiscoveryRepository,
+        JobDiscoveryProvider,
+        ConfigService,
+        AgentSearchService,
+      ],
       useFactory: (
         repository: DiscoveryRepository,
         provider: JobDiscoveryProvider,
         config: ConfigService,
+        agent: AgentSearchService,
       ) =>
         new JobDiscoveryService(
           repository,
@@ -83,6 +129,7 @@ import { AgentsJobContentExtractor } from "./infrastructure/agents-job-content.e
               Number(config.get("JOB_DISCOVERY_TOTAL_TIMEOUT_MS")) || 60000,
             ),
           ),
+          agent,
         ),
     },
   ],

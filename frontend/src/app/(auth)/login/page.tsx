@@ -18,9 +18,7 @@ export default function LoginPage() {
     setError("");
     try {
       await login(email, password);
-      router.push(
-        useAuthStore.getState().isProfileComplete ? "/chat" : "/onboarding",
-      );
+      router.push("/chat");
     } catch {
       setError(
         "ورود انجام نشد. ایمیل، رمز عبور و اتصال به سرور را بررسی کنید.",

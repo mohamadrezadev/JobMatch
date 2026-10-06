@@ -206,6 +206,7 @@ export class ChatRunService implements OnModuleDestroy {
         });
         await this.publish(run.id, "context.updated", {
           conversation: { ...conversation, messages },
+          understandingMode: turn.understandingMode,
           userMessageId: run.userMessageId,
           assistantMessageId: run.assistantMessageId,
         });

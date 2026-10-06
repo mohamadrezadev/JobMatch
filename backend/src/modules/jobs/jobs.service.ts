@@ -68,7 +68,7 @@ export class JobsService {
         and.push({ id: { in: await jobsWithSkills(this.prisma, skills) } });
     }
     const where: Prisma.JobWhereInput = { AND: and };
-    const [items, total, profile, skills] = await Promise.all([
+    const [items, total, profile, skills, resumeCount] = await Promise.all([
       this.prisma.job.findMany({
         where,
         skip: (page - 1) * limit,
@@ -83,6 +83,7 @@ export class JobsService {
             include: { skill: true },
           })
         : [],
+      userId ? this.prisma.resume.count({ where: { userId } }) : 0,
     ]);
     return {
       items: items.map((job) =>
@@ -93,6 +94,7 @@ export class JobsService {
                 profile,
                 skills.map((s) => s.skill.name),
                 job,
+                resumeCount > 0,
               ),
             }
           : job,
@@ -104,7 +106,7 @@ export class JobsService {
     };
   }
   async getRecommended(userId: string) {
-    const [jobs, profile, skills, feedback] = await Promise.all([
+    const [jobs, profile, skills, feedback, resumeCount] = await Promise.all([
       this.prisma.job.findMany({
         orderBy: [{ lastSeenAt: "desc" }, { id: "asc" }],
       }),
@@ -118,6 +120,7 @@ export class JobsService {
         include: { job: true },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       }),
+      this.prisma.resume.count({ where: { userId } }),
     ]);
     const latest = new Map<string, string>();
     for (const f of feedback)
@@ -129,6 +132,7 @@ export class JobsService {
           profile,
           skills.map((s) => s.skill.name),
           job,
+          resumeCount > 0,
         );
         const modifier = feedbackModifier(job, feedback);
         return {
@@ -136,11 +140,13 @@ export class JobsService {
           match,
           matchScore: match.matchScore,
           rankingScore:
-            Math.round(match.matchScore * (1 + modifier) * 100) / 100,
+            match.matchScore == null
+              ? null
+              : Math.round(match.matchScore * (1 + modifier) * 100) / 100,
           personalizationModifier: modifier,
         };
       })
-      .sort((a, b) => b.rankingScore - a.rankingScore)
+      .sort((a, b) => (b.rankingScore ?? -1) - (a.rankingScore ?? -1))
       .slice(0, 5);
   }
 }

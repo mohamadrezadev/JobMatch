@@ -16,16 +16,6 @@ import Link from "next/link";
 const workLabels = { Remote: "دورکار", Hybrid: "هیبرید", OnSite: "حضوری" };
 export default function ChatExperience() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const isProfileComplete = useAuthStore((state) => state.isProfileComplete);
-  if (isAuthenticated && isProfileComplete === false)
-    return (
-      <p>
-        برای دریافت پیشنهادهای شخصی{" "}
-        <Link href="/onboarding" className="text-brand-500">
-          پروفایل خود را تکمیل کنید.
-        </Link>
-      </p>
-    );
   return isAuthenticated ? <AuthenticatedChat /> : <GuestChat />;
 }
 function AuthenticatedChat() {
@@ -101,6 +91,13 @@ function AuthenticatedChat() {
   }, [hydrated, isAuthenticated, user?.id, claimRetry]);
   useEffect(() => {
     const id = chat.active?.id;
+    if (id) {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("conversation") !== id) {
+        url.searchParams.set("conversation", id);
+        window.history.replaceState(window.history.state, "", url);
+      }
+    }
     if (
       id &&
       !useChatRunStore.getState().runs.some((run) => run.conversationId === id)
@@ -128,7 +125,7 @@ function AuthenticatedChat() {
   const context = chat.active?.context.searchContext;
   const ready = Boolean(context?.targetRoles.length);
   return (
-    <section className="glass-card flex h-[calc(100dvh-184px)] min-h-[360px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-light-surface dark:border-dark-border dark:bg-dark-surface md:h-[calc(100dvh-120px)] md:min-h-[440px]">
+    <section className="glass-card chat-workspace flex h-[calc(100dvh-180px)] min-h-[420px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-light-surface shadow-xl shadow-slate-900/5 dark:border-dark-border dark:bg-dark-surface md:h-[calc(100dvh-136px)] md:min-h-[480px]">
       <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/50">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-500 to-indigo-600 text-white shadow-md">
@@ -159,13 +156,16 @@ function AuthenticatedChat() {
               chat.pending || runs.pending || claiming || Boolean(claimError)
             }
             onClick={() => {
+              const url = new URL(window.location.href);
+              url.searchParams.delete("conversation");
+              window.history.replaceState(window.history.state, "", url);
               chat.startNew();
               runs.reset();
               setDraft("");
             }}
             className="rounded-lg bg-slate-100 px-3 py-1 text-xs text-slate-400 transition-all hover:text-rose-500 dark:bg-dark-card"
           >
-            <Icon name="trash" className="ml-1" />
+            <Icon name="plus" className="ml-1" />
             <span className="hidden sm:inline">پاک‌سازی گفت‌وگو</span>
           </button>
         </div>
@@ -273,9 +273,9 @@ function AuthenticatedChat() {
               </p>
               <p>چگونه می‌توانم امروز به شما کمک کنم؟ می‌توانید بگویید:</p>
               <ul className="list-inside list-disc space-y-1 text-slate-500 dark:text-slate-400">
-                <li>«یه کار بک‌اند Node دورکار بالای ۱۵ تومن می‌خوام»</li>
+                <li>«دنبال شغل حسابداری توی تهران می‌گردم»</li>
                 <li>«فقط دورکار، حداقل ۲۰ میلیون»</li>
-                <li>«Python بلد نیستم»</li>
+                <li>«کار مدیر محصول دورکار می‌خوام»</li>
               </ul>
             </div>
           </div>

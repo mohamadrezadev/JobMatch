@@ -87,9 +87,17 @@ export class GuestChatController {
   ) {
     response.setHeader("Cache-Control", "no-store");
     const raw = token(request);
+    const data = await this.chat.get(raw ? hash(raw) : undefined);
+    if (raw && !data.messages.length && data.remaining === 5)
+      response.clearCookie(cookieName, {
+        path: "/api/chat/guest",
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+      });
     return {
       success: true,
-      data: await this.chat.get(raw ? hash(raw) : undefined),
+      data,
     };
   }
   @Post("message")

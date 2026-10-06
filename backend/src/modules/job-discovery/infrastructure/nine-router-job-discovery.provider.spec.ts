@@ -1,4 +1,7 @@
-import { NineRouterJobDiscoveryProvider } from "./nine-router-job-discovery.provider";
+import {
+  NineRouterJobDiscoveryProvider,
+  jobDetailUrl,
+} from "./nine-router-job-discovery.provider";
 import { NineRouterClient } from "./nine-router.client";
 import { SourceValidator } from "./source-validator";
 import { DiscoveryError } from "../domain/discovery";
@@ -6,6 +9,21 @@ import { DiscoveryError } from "../domain/discovery";
 const html =
   '<script type="application/ld+json">{"@type":"JobPosting","title":"Backend Developer","hiringOrganization":{"name":"X"}}</script>';
 describe("Search/fetch boundary", () => {
+  it("follows IranTalent listing links instead of treating their category pages as vacancies", () => {
+    expect(
+      jobDetailUrl(
+        "https://www.irantalent.com/jobs/senior-accountant-jobs-in-tehran",
+      ),
+    ).toBe(false);
+    expect(
+      jobDetailUrl("https://www.irantalent.com/en/job/accountant/184216"),
+    ).toBe(true);
+    expect(
+      jobDetailUrl(
+        "https://www.irantalent.com/job/financial-accountant/184441",
+      ),
+    ).toBe(true);
+  });
   let client: { ready: jest.Mock; search: jest.Mock; fetch: jest.Mock };
   let validator: SourceValidator;
   const signal = new AbortController().signal;
@@ -20,6 +38,33 @@ describe("Search/fetch boundary", () => {
     jest
       .spyOn(validator, "validate")
       .mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+  });
+  it("searches only the requested batch and rejects unknown or repeated sources", async () => {
+    client.search.mockResolvedValue([]);
+    const provider = new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir", "jobinja.ir"],
+    );
+    const result = await provider.discover(
+      { targetRoles: ["Backend Developer"] },
+      signal,
+      undefined,
+      { sources: ["jobinja.ir"] },
+    );
+    expect(result.sources.map((source) => source.source)).toEqual([
+      "jobinja.ir",
+    ]);
+    expect(client.search).toHaveBeenCalledTimes(1);
+    for (const sources of [["linkedin.com"], ["jobinja.ir", "jobinja.ir"], []])
+      await expect(
+        provider.discover(
+          { targetRoles: ["Backend Developer"] },
+          signal,
+          undefined,
+          { sources },
+        ),
+      ).rejects.toMatchObject({ code: "SOURCE_REJECTED" });
   });
   it("never fetches LinkedIn/Indeed even when search returns them", async () => {
     client.search.mockResolvedValue([
@@ -84,6 +129,57 @@ describe("Search/fetch boundary", () => {
     ).discover({ targetRoles: ["Backend Developer"] }, signal);
     expect(result.jobs).toHaveLength(1);
     expect(result.sources[1].error).toBe("SEARCH_FAILED");
+  });
+  it("starts every selected source before any search resolves and streams fast results", async () => {
+    const sources = [
+      "jobvision.ir",
+      "jobinja.ir",
+      "irantalent.com",
+      "e-estekhdam.com",
+    ];
+    const releases = new Map<string, (urls: string[]) => void>();
+    client.search.mockImplementation(
+      (_query, source) =>
+        new Promise<string[]>((resolve) => {
+          releases.set(source, resolve);
+        }),
+    );
+    const progress = {
+      sourceStarted: jest.fn(async () => undefined),
+      sourceCompleted: jest.fn(async () => undefined),
+      jobCandidate: jest.fn(async () => true),
+    };
+    const validatorForAll = new SourceValidator(sources);
+    const provider = new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validatorForAll,
+      sources,
+    );
+    jest
+      .spyOn(validatorForAll, "resolveSearch")
+      .mockImplementation(async (url) => url);
+    jest
+      .spyOn(validatorForAll, "validate")
+      .mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+    const pending = provider.discover(
+      { targetRoles: ["Backend Developer"] },
+      signal,
+      progress,
+    );
+    // A sequential implementation would only enter the first blocked search.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect([...releases.keys()]).toEqual(sources);
+    expect(progress.sourceStarted).toHaveBeenCalledTimes(4);
+    releases.get("jobvision.ir")!(["https://jobvision.ir/jobs/1"]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(progress.jobCandidate).toHaveBeenCalledTimes(1);
+    expect(progress.sourceCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "jobvision.ir", accepted: 1 }),
+    );
+    sources.slice(1).forEach((source) => releases.get(source)!([]));
+    const result = await pending;
+    expect(result.jobs).toHaveLength(1);
+    expect(result.sources).toHaveLength(4);
   });
   it("does not search or fetch without a provider", async () => {
     client.ready.mockRejectedValue(

@@ -26,13 +26,17 @@ export interface Job {
 }
 
 export interface MatchResult {
-  matchScore: number;
+  matchScore: number | null;
+  status?: "ready" | "partial" | "insufficient_data";
+  reason?:
+    "RESUME_REQUIRED" | "PROFILE_REQUIRED" | "JOB_REQUIREMENTS_UNKNOWN" | null;
+  evidenceCoverage?: number;
   breakdown: {
-    skills: { score: number; matched: string[]; missing: string[] };
-    experience: { score: number; details: string };
-    location: { score: number; details: string };
-    workType?: { score: number; details: string; status?: string };
-    salary: { score: number; details: string };
+    skills: { score: number | null; matched: string[]; missing: string[] };
+    experience: { score: number | null; details: string };
+    location: { score: number | null; details: string };
+    workType?: { score: number | null; details: string; status?: string };
+    salary: { score: number | null; details: string };
   };
   skillGaps: string[];
   explanation?: string;

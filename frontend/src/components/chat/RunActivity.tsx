@@ -5,6 +5,17 @@ import { useChatRunStore } from "@/stores/useChatRunStore";
 import { runFinished, type ChatRunView } from "@/types/chat-run";
 import type { Conversation } from "@/types/chat";
 
+const agentReasons: Record<string, string> = {
+  INITIAL_SEARCH: "شروع جستجو در منابع منتخب",
+  TOO_FEW_RESULTS: "نتایج قابل‌تأیید کافی نیست؛ جستجو ادامه پیدا می‌کند.",
+  SOURCE_FAILURE_RECOVERY:
+    "یکی از منابع پاسخ کامل نداد؛ منابع دیگری بررسی می‌شوند.",
+  ENOUGH_RESULTS: "تعداد کافی فرصت قابل‌تأیید پیدا شد.",
+  SOURCES_EXHAUSTED: "همه منابع در دسترس بررسی شدند.",
+  STEP_LIMIT: "جستجو به سقف چهار مرحله رسید؛ نتایج موجود حفظ شدند.",
+  TIME_LIMIT: "زمان جستجو تمام شد؛ نتایج موجود حفظ شدند.",
+};
+
 export function RunActivity({ run }: { run: ChatRunView }) {
   const [expanded, setExpanded] = useState(false);
   const { pending, start } = useChatRunStore();
@@ -47,6 +58,12 @@ export function RunActivity({ run }: { run: ChatRunView }) {
               ✓ درخواست مشخص شد:{" "}
               {[
                 ...context.context.searchContext.targetRoles,
+                ...(context.context.searchContext.requestedCount
+                  ? [
+                      `${context.context.searchContext.requestedCount.toLocaleString("fa-IR")} فرصت درخواستی`,
+                    ]
+                  : []),
+                ...(context.context.searchContext.requiredSkills ?? []),
                 ...(context.context.searchContext.preferredSkills ?? []),
                 ...(context.context.searchContext.workTypes ?? []).map(
                   (work) =>
@@ -54,6 +71,10 @@ export function RunActivity({ run }: { run: ChatRunView }) {
                       work
                     ],
                 ),
+                ...(context.context.searchContext.locations ?? []),
+                ...(context.context.searchContext.experienceLevel
+                  ? [context.context.searchContext.experienceLevel]
+                  : []),
                 ...(context.context.searchContext.minimumSalary
                   ? [
                       `حداقل ${context.context.searchContext.minimumSalary.toLocaleString("fa-IR")} تومان`,
@@ -67,6 +88,60 @@ export function RunActivity({ run }: { run: ChatRunView }) {
             <p>○ درخواست پذیرفته شد</p>
           )}
           {cached && <p>✓ نتایج ذخیره‌شده همین ترجیحات بازیابی شد</p>}
+          {run.events
+            .filter((event) => event.type.startsWith("agent."))
+            .map((event) => {
+              const data = event.data;
+              if (
+                event.type === "agent.started" &&
+                data.searchMode === "parallel" &&
+                Array.isArray(data.sources)
+              )
+                return (
+                  <p key={event.id}>
+                    ◌ جستجوی همزمان در{" "}
+                    {data.sources.length.toLocaleString("fa-IR")} منبع
+                  </p>
+                );
+              if (event.type === "agent.planning")
+                return (
+                  <p key={event.id}>
+                    ◌ برنامه‌ریزی جستجو · مرحله{" "}
+                    {Number(data.step).toLocaleString("fa-IR")}
+                  </p>
+                );
+              if (event.type === "agent.decision")
+                return (
+                  <p key={event.id}>
+                    {agentReasons[String(data.reasonCode)] ??
+                      "بررسی مرحله بعدی جستجو"}
+                    {data.action === "SEARCH_SOURCES" &&
+                      Array.isArray(data.sources) && (
+                        <span dir="ltr">
+                          {" "}
+                          ·{" "}
+                          {data.sources
+                            .filter((source) => typeof source === "string")
+                            .join("، ")}
+                        </span>
+                      )}
+                  </p>
+                );
+              if (event.type === "agent.observation")
+                return (
+                  <p key={event.id}>
+                    ✓ {Number(data.totalValidJobs).toLocaleString("fa-IR")}{" "}
+                    نتیجه قابل‌تأیید ·{" "}
+                    {Number(data.uncertainJobCount ?? 0).toLocaleString(
+                      "fa-IR",
+                    )}{" "}
+                    نتیجه با حقوق تأییدنشده
+                  </p>
+                );
+              if (event.type === "agent.completed")
+                return <p key={event.id}>✓ بررسی منابع پایان یافت</p>;
+              return null;
+            })}
           {run.sources.map((source) => {
             const last = [...run.events]
               .reverse()
@@ -138,6 +213,15 @@ export function RunActivity({ run }: { run: ChatRunView }) {
                   {warning}
                 </p>
               ))}
+              {context?.context.searchContext.minimumSalary != null &&
+                (job.salaryMin == null ||
+                  job.currency !== "TOMAN" ||
+                  job.salaryPeriod !== "MONTHLY") && (
+                  <p className="text-amber-600 dark:text-amber-400">
+                    حداقل حقوق درخواستی تأیید نشده؛ این فرصت جزو نتایج کافی حساب
+                    نمی‌شود.
+                  </p>
+                )}
               <div className="flex gap-3">
                 <Link href={`/jobs/${job.id}`} className="text-brand-500">
                   جزئیات

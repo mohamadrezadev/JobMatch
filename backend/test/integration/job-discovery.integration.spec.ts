@@ -114,7 +114,13 @@ databaseSuite("Job discovery HTTP + mock 9Router + real PostgreSQL", () => {
             JSON.stringify({
               url: body.url,
               final_url: `https://${source}/jobs`,
-              links: [`/jobs/${owner}`, "https://linkedin.com/jobs/1"],
+              // IranTalent detail links require a slug and numeric job id.
+              links: [
+                source === "irantalent.com"
+                  ? "/en/job/backend-node/12345"
+                  : `/jobs/${owner}`,
+                "https://linkedin.com/jobs/1",
+              ],
               content: { text: "Listing page" },
             }),
           );

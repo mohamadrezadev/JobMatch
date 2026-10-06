@@ -22,6 +22,42 @@ jest.mock("@/lib/api-client", () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 describe("Resume studio truthfulness and preview", () => {
+  it("reloads current profile facts even when this owner already has a draft", async () => {
+    mockAuthenticated = true;
+    useResumeDraftStore
+      .getState()
+      .initialize("owner", "Old name", "old@example.test");
+    useResumeDraftStore
+      .getState()
+      .update({ title: "Old title", summary: "Old summary" });
+    (apiClient.get as jest.Mock).mockImplementation((url: string) =>
+      Promise.resolve({
+        data:
+          url === "/api/resumes"
+            ? []
+            : url.endsWith("/skills")
+              ? [{ skill: { name: "Excel" } }]
+              : {
+                  title: "حسابدار",
+                  bio: "Current biography",
+                  resumeFacts: ["Current education"],
+                },
+      }),
+    );
+    render(<ResumeStudio />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("خلاصه حرفه‌ای")).toHaveValue(
+        "Current biography",
+      ),
+    );
+    expect(screen.getByLabelText("نام و نام خانوادگی")).toHaveValue(
+      "Actual User",
+    );
+    expect(screen.getByLabelText("عنوان شغلی")).toHaveValue("حسابدار");
+    expect(
+      screen.getByLabelText("مهارت‌های اصلی (با ویرگول جدا کنید)"),
+    ).toHaveValue("Excel");
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     mockAuthenticated = false;

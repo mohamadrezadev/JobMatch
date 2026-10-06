@@ -14,6 +14,40 @@ jest.mock("@/lib/api-client", () => ({
   default: { get: jest.fn(), post: jest.fn() },
 }));
 describe("Reference job discovery", () => {
+  it("shows requirements without a percentage or invented skill gaps when no resume exists", async () => {
+    mockAuthenticated = true;
+    (apiClient.post as jest.Mock).mockResolvedValue({ data: {} });
+    (apiClient.get as jest.Mock).mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: "no-resume",
+            title: "حسابدار",
+            company: "شرکت واقعی",
+            location: "Tehran",
+            requiredSkills: [{ name: "Excel" }],
+            match: {
+              matchScore: null,
+              status: "insufficient_data",
+              reason: "RESUME_REQUIRED",
+              explanation:
+                "هنوز رزومه‌ای ذخیره نکرده‌اید؛ درصد تطابق محاسبه نشده است.",
+              breakdown: { skills: { matched: [], missing: ["Excel"] } },
+            },
+          },
+        ],
+      },
+    });
+    render(<JobsView />);
+    await screen.findByText(/هنوز رزومه‌ای ذخیره نکرده‌اید/);
+    expect(screen.queryByText("تطابق با شما")).not.toBeInTheDocument();
+    expect(screen.queryByText("شکاف مهارت (Skill Gap)")).not.toBeInTheDocument();
+    expect(screen.getByText(/مهارت‌های موردنیاز آگهی/)).toBeInTheDocument();
+    expect(screen.queryByText("نیاز به Excel")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /ساخت رزومه برای محاسبه/ }),
+    ).toHaveAttribute("href", "/resume?job=no-resume");
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     mockAuthenticated = false;

@@ -21,6 +21,100 @@ const view = (): ChatRunView => ({
   error: null,
 });
 beforeEach(() => useChatRunStore.getState().reset());
+it("shows that all four sources are searched concurrently", () => {
+  const run = view();
+  run.events = [
+    {
+      id: "start",
+      sequence: 1,
+      runId: "run",
+      timestamp: "now",
+      type: "agent.started",
+      data: {
+        searchMode: "parallel",
+        sources: [
+          "jobinja.ir",
+          "jobvision.ir",
+          "irantalent.com",
+          "e-estekhdam.com",
+        ],
+      },
+    },
+  ];
+  render(<RunActivity run={run} />);
+  expect(screen.getByText(/جستجوی همزمان در ۴ منبع/)).toBeInTheDocument();
+});
+it("shows the interpreted occupation and requested count before planning", () => {
+  const run = view();
+  run.events = [
+    {
+      id: "context",
+      sequence: 1,
+      runId: "run",
+      timestamp: "now",
+      type: "context.updated",
+      data: {
+        conversation: {
+          context: {
+            searchContext: { targetRoles: ["حسابداری"], requestedCount: 10 },
+          },
+        },
+      },
+    },
+    {
+      id: "plan",
+      sequence: 2,
+      runId: "run",
+      timestamp: "now",
+      type: "agent.planning",
+      data: { step: 1 },
+    },
+  ];
+  render(<RunActivity run={run} />);
+  expect(
+    screen.getByText(/درخواست مشخص شد:.*حسابداری.*۱۰ فرصت درخواستی/),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/برنامه‌ریزی جستجو/)).toBeInTheDocument();
+});
+it("shows Persian agent summaries without rendering internal model reasoning", () => {
+  const run = view();
+  run.events = [
+    {
+      id: "e1",
+      sequence: 1,
+      runId: "run",
+      timestamp: "now",
+      type: "agent.planning",
+      data: { step: 2 },
+    },
+    {
+      id: "e2",
+      sequence: 2,
+      runId: "run",
+      timestamp: "now",
+      type: "agent.decision",
+      data: {
+        action: "SEARCH_SOURCES",
+        sources: ["irantalent.com"],
+        reasonCode: "TOO_FEW_RESULTS",
+        reasoning: "INTERNAL_REASONING",
+      },
+    },
+    {
+      id: "e3",
+      sequence: 3,
+      runId: "run",
+      timestamp: "now",
+      type: "agent.observation",
+      data: { totalValidJobs: 1, uncertainJobCount: 5 },
+    },
+  ];
+  render(<RunActivity run={run} />);
+  expect(screen.getByText(/برنامه‌ریزی جستجو/)).toBeInTheDocument();
+  expect(screen.getByText(/نتایج قابل‌تأیید کافی نیست/)).toBeInTheDocument();
+  expect(screen.getByText(/نتیجه با حقوق تأییدنشده/)).toBeInTheDocument();
+  expect(screen.queryByText("INTERNAL_REASONING")).not.toBeInTheDocument();
+});
 it("shows actual progress and keeps job cards visible after collapsing completed activity", () => {
   const run = view();
   run.events = [

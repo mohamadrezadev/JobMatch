@@ -2,7 +2,7 @@ const { chromium, expect } = require("@playwright/test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const base = process.env.JOBMATCH_PREVIEW_URL || "http://localhost:3013";
+const base = process.env.JOBMATCH_PREVIEW_URL || "http://localhost:3001";
 
 class BrandPage {
   constructor(page) {
@@ -64,7 +64,7 @@ class BrandPage {
           page.getByRole("img", { name: /مهارت‌های تو، فرصت مناسب تو/ }),
         ).toBeVisible();
         await expect(
-          page.locator('header img[src$="karmatch-wordmark.png"]'),
+          page.locator('header [data-brand="wordmark"]'),
         ).toBeVisible({ visible: viewport.width >= 640 });
         await page.screenshot({
           path: path.join(output, `landing-${viewport.width}-${theme}.png`),
@@ -72,16 +72,14 @@ class BrandPage {
         await journey.open("/login");
         await journey.checkImages();
         await expect(
-          page.getByRole("img", { name: /مهارت‌های تو، فرصت مناسب تو/ }),
+          page.getByRole("heading", { name: "خوش برگشتی!" }),
         ).toBeVisible();
         await page.screenshot({
           path: path.join(output, `login-${viewport.width}-${theme}.png`),
         });
         await journey.open("/jobs");
         await journey.checkImages();
-        await expect(
-          page.locator('aside img[src$="karmatch-wordmark.png"]'),
-        ).toBeVisible({ visible: viewport.width >= 768 });
+        await expect(page.locator('header [data-brand="wordmark"]')).toBeVisible();
         await page.screenshot({
           path: path.join(output, `navigation-${viewport.width}-${theme}.png`),
         });
@@ -108,16 +106,14 @@ class BrandPage {
       );
     }
     // Failed image still exposes the full accessible brand/tagline.
-    await page.route("**/brand/karmatch-vertical.png", (route) =>
-      route.abort(),
-    );
+    await page.route("**/brand/karmatch-mark.svg", (route) => route.abort());
     await journey.open("/register");
     await expect(
-      page.getByRole("img", { name: /KarMatch — مهارت‌های تو، فرصت مناسب تو/ }),
+      page.getByRole("img", { name: /KarMatch/ }).first(),
     ).toBeVisible();
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: desktop/mobile light/dark branding, login, full tagline, no overflow, image-failure accessibility, favicon and manifest assets",
+      "PASS: desktop/mobile light/dark vector branding, login, navigation, tagline, no overflow, image-failure accessibility, favicon and manifest assets",
     );
   } finally {
     await browser.close();

@@ -1,0 +1,101 @@
+// Real local UI, API, database and configured model; cleans only its own account.
+const { chromium, expect } = require('@playwright/test');
+const assert = require('node:assert/strict');
+const { randomUUID } = require('node:crypto');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+require('../../backend/node_modules/@nestjs/config').ConfigModule.forRoot({ envFilePath: path.resolve(__dirname, '../../backend/.env') });
+const { PrismaClient } = require('../../backend/node_modules/@prisma/client');
+const db = new PrismaClient();
+const app = process.env.JOBMATCH_PREVIEW_URL || 'http://localhost:3001';
+const base = process.env.JOBMATCH_API_URL || 'http://localhost:3100';
+const output = path.resolve(__dirname, '../../artifacts/resume-live');
+let owner, token, browser, page;
+async function api(route, method = 'GET', body) {
+  const response = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(65000) });
+  const envelope = await response.json();
+  return { status: response.status, data: envelope.data ?? envelope, error: envelope.error };
+}
+(async () => {
+  try {
+    await fs.mkdir(output, { recursive: true });
+    const job = await db.job.findFirst({ where: { title: { contains: 'حسابدار' }, sourceUrl: { startsWith: 'https://jobinja.ir/companies/' } }, orderBy: { createdAt: 'desc' }, select: { id: true, title: true, company: true, sourceUrl: true } });
+    assert.ok(job, 'A real discovered accounting vacancy is required');
+    const registration = await api('/api/auth/register', 'POST', { email: `resume-live-${randomUUID()}@example.test`, password: randomUUID() + '!aA1', firstName: 'آزمایش', lastName: 'رزومه' });
+    assert.equal(registration.status, 201);
+    const auth = registration.data;
+    owner = auth.user.id;
+    token = auth.accessToken;
+    const blocked = await api('/api/resume/generate', 'POST', { jobId: job.id });
+    assert.equal(blocked.status, 400, 'Incomplete profile must not generate invented history');
+    for (const skillName of ['Microsoft Excel', 'حسابداری']) assert.equal((await api('/api/users/skills', 'POST', { skillName, level: 'Intermediate' })).status, 201);
+    const bio = 'حسابدار با تجربه ثبت اسناد مالی و تهیه گزارش با Excel.';
+    const facts = ['ثبت اسناد مالی و کنترل مغایرت بانکی در شرکت نمونه آزمایشی.', 'تهیه گزارش ماهانه هزینه‌ها با Microsoft Excel.'];
+    const profile = await api('/api/users/profile', 'PUT', { title: 'حسابدار', location: 'تهران', experienceYears: 3, experienceLevel: 'Mid', workType: 'OnSite', bio, resumeFacts: facts });
+    assert.equal(profile.status, 200);
+    assert.equal(profile.data.isProfileComplete, true);
+    browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
+    await context.addInitScript((auth) => {
+      localStorage.setItem('accessToken', auth.accessToken);
+      localStorage.setItem('refreshToken', auth.refreshToken);
+      localStorage.setItem('auth-storage', JSON.stringify({ version: 0, state: { user: auth.user, accessToken: auth.accessToken, isAuthenticated: true, isProfileComplete: true, onboardingStep: 0 } }));
+    }, auth);
+    page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(app + '/jobs/' + job.id);
+    const tailorLink = page.getByRole('link', { name: 'سفارشی‌سازی رزومه برای این شغل', exact: true });
+    await expect(tailorLink).toBeVisible({ timeout: 20000 });
+    await expect(tailorLink).toHaveAttribute('href', '/resume?job=' + job.id);
+    await tailorLink.click();
+    await expect(page).toHaveURL(new RegExp('/resume\\?job=' + job.id));
+    await expect(page.getByRole('heading', { name: job.title, exact: true })).toBeVisible();
+    await expect(page.getByLabel('خلاصه حرفه‌ای', { exact: true })).toHaveValue(bio);
+    const start = Date.now();
+    const generatedResponse = page.waitForResponse((r) => r.url().endsWith('/api/resume/generate') && r.request().method() === 'POST', { timeout: 65000 });
+    await page.getByRole('button', { name: 'سفارشی‌سازی برای شغل منتخب', exact: true }).click();
+    const generated = await generatedResponse;
+    const payload = await generated.json();
+    console.log(JSON.stringify({ stage: 'generation', status: generated.status(), durationMs: Date.now() - start, ...(payload.error ? { error: payload.error } : {}) }));
+    assert.equal(generated.status(), 201, 'Live configured model must generate a saved resume');
+    const resume = payload.data ?? payload;
+    assert.equal(resume.jobId, job.id);
+    assert.equal(resume.content.name, 'آزمایش رزومه');
+    assert.ok([bio, ...facts].includes(resume.content.summary));
+    assert.ok(resume.content.highlights.every((fact) => facts.includes(fact)));
+    assert.ok(resume.content.skills_to_emphasize.every((skill) => ['Microsoft Excel', 'حسابداری'].includes(skill)));
+    await expect(page.getByText('رزومه بررسی و در حساب شما ذخیره شد.', { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByLabel('خلاصه حرفه‌ای', { exact: true })).toHaveValue(resume.content.summary);
+    const edited = 'خلاصه ویرایش‌شده توسط صاحب حساب آزمایشی.';
+    await page.getByLabel('خلاصه حرفه‌ای', { exact: true }).fill(edited);
+    await page.getByRole('button', { name: 'ذخیره ویرایش', exact: true }).click();
+    await expect(page.getByText('ویرایش رزومه ذخیره شد.', { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByLabel('خلاصه حرفه‌ای', { exact: true })).toHaveValue(edited);
+    const downloading = page.waitForEvent('download', { timeout: 30000 });
+    await page.getByRole('button', { name: 'دانلود PDF', exact: true }).click();
+    const download = await downloading;
+    assert.equal(download.suggestedFilename(), 'resume.pdf');
+    const file = path.join(output, 'resume.pdf');
+    await download.saveAs(file);
+    const pdf = await fs.readFile(file);
+    assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
+    assert.ok(pdf.length > 1000);
+    const saved = await api('/api/resumes/' + resume.id);
+    assert.equal(saved.data.content.summary, edited);
+    const foreign = await api('/api/resumes/' + randomUUID());
+    assert.equal(foreign.status, 404);
+    await page.screenshot({ path: path.join(output, 'resume-studio.png'), fullPage: true });
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ status: 'PASS', jobTitle: job.title, sourceUrl: job.sourceUrl, generated: true, persistedAfterReload: true, edited: true, pdfBytes: pdf.length, output }));
+  } catch (error) {
+    if (page) await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {});
+    throw error;
+  } finally {
+    if (browser) await browser.close();
+    if (owner) await db.user.delete({ where: { id: owner } });
+    await db.$disconnect();
+  }
+})().catch((error) => { console.error(error.message); process.exitCode = 1; });

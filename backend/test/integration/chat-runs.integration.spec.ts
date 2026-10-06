@@ -59,9 +59,23 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
       _intent: unknown,
       _signal: AbortSignal,
       progress?: DiscoveryProgress,
+      options?: { sources: string[] },
     ) {
       if (unavailable)
         throw new DiscoveryError("JOB_DISCOVERY_UNAVAILABLE", 503);
+      if (options && !options.sources.includes("jobinja.ir")) {
+        const sources = options.sources.map((source) => ({
+          source,
+          query: "INTERNAL_QUERY",
+          found: 0,
+          accepted: 0,
+          rejected: 0,
+        }));
+        for (const source of options.sources)
+          await progress?.sourceStarted(source);
+        for (const report of sources) await progress?.sourceCompleted(report);
+        return { jobs: [], sources };
+      }
       await progress?.sourceStarted("jobinja.ir");
       await progress?.sourceStarted("jobvision.ir");
       await progress?.jobCandidate(job);
@@ -277,6 +291,14 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
       release!();
     });
     expect(found).toBe(true);
+    expect(
+      events
+        .filter((e) => e.type === "agent.decision")
+        .map((e) => e.data.action),
+    ).toEqual(["SEARCH_SOURCES", "FINISH"]);
+    expect(events.filter((e) => e.type === "agent.observation")).toHaveLength(
+      1,
+    );
     expect(events.filter((e) => e.type === "job.accepted")).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({
       type: "run.completed",

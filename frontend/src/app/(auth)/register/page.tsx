@@ -24,7 +24,7 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await register(email, password, firstName, lastName);
-      router.push("/onboarding");
+      router.push("/chat");
     } catch {
       setError("ثبت‌نام انجام نشد. ایمیل و اتصال به سرور را بررسی کنید.");
     } finally {

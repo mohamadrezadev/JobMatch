@@ -347,6 +347,29 @@ describe("Chat HTTP contract with actual JWT guard", () => {
         .messages,
     ).toHaveLength(4);
   });
+  it("accepts and retains a nontechnical job title through the authenticated API", async () => {
+    const first = await send({
+      message: "دنبال شغل حسابداری میگردم توی تهران 5 تا اگهی برام پیدا کن",
+    });
+    expect(first.status).toBe(200);
+    const created = (
+      (await first.json()) as { data: { conversationId: string } }
+    ).data;
+    expect(created).toMatchObject({
+      intent: "JOB_SEARCH",
+      readyForSearch: true,
+      searchContext: { targetRoles: ["حسابداری"], locations: ["Tehran"] },
+    });
+    const second = await send({
+      conversationId: created.conversationId,
+      message: "حداقل ۳۰ میلیون",
+    });
+    expect(((await second.json()) as { data: unknown }).data).toMatchObject({
+      intent: "UPDATE_SEARCH",
+      readyForSearch: true,
+      searchContext: { targetRoles: ["حسابداری"], minimumSalary: 30000000 },
+    });
+  });
   it("returns 404 for foreign reads and writes", async () => {
     const first = await send({ message: "Backend" });
     const id = ((await first.json()) as { data: { conversationId: string } })
@@ -365,15 +388,19 @@ describe("Chat HTTP contract with actual JWT guard", () => {
     expect(((await list.json()) as { data: unknown[] }).data).toEqual([]);
     expect(records.get(id)?.messages).toHaveLength(2);
   });
-  it('bounds repeated guest requests with a rate-limit error', async () => {
+  it("bounds repeated guest requests with a rate-limit error", async () => {
     let limited = false;
     for (let i = 0; i < 21; i++) {
-      const response = await fetch(base + '/api/chat/guest/message', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Backend' }),
+      const response = await fetch(base + "/api/chat/guest/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Backend" }),
       });
       if (response.status === 429) {
         limited = true;
-        expect(await response.json()).toMatchObject({ error: { code: 'RATE_LIMITED' } });
+        expect(await response.json()).toMatchObject({
+          error: { code: "RATE_LIMITED" },
+        });
       }
     }
     expect(limited).toBe(true);

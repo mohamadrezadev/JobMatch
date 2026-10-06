@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/api-client";
 import { useAuthStore } from "@/stores/useAuthStore";
@@ -15,6 +15,7 @@ import { DemoNotice } from "./DemoNotice";
 import { recordEvent } from "@/lib/analytics";
 
 export function JobsView({ initialJobId }: { initialJobId?: string }) {
+  const detailsRef = useRef<HTMLDivElement>(null);
   const { isAuthenticated, user } = useAuthStore();
   const preview =
     process.env.NODE_ENV !== "production" &&
@@ -208,11 +209,18 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
       alive = false;
     };
   }, [selected?.id, isAuthenticated, matches]);
-  const score = match?.matchScore ?? selected?.score;
+  const score = match
+    ? typeof match.matchScore === "number"
+      ? match.matchScore
+      : undefined
+    : selected?.score;
+  const analyzed = typeof score === "number";
   const matched =
-    match?.breakdown.skills.matched ?? selected?.matchedSkills ?? [];
+    (analyzed ? match?.breakdown.skills.matched : undefined) ??
+    selected?.matchedSkills ??
+    [];
   const missing =
-    match?.breakdown.skills.missing ?? selected?.missingSkills ?? [];
+    (analyzed ? match?.breakdown.skills.missing : undefined) ?? [];
   const showDemo = () => {
     setJobs(demoJobs);
     setDemo(true);
@@ -223,6 +231,21 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
   };
   return (
     <section className="animate-fade-in space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black">فرصت‌های شغلی</h1>
+          <p className="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
+            آگهی‌ها را بررسی کن؛ تطابق شخصی پس از ساخت رزومه و براساس اطلاعات
+            واقعی تو محاسبه می‌شود.
+          </p>
+        </div>
+        <Link
+          href="/chat"
+          className="inline-flex items-center gap-2 rounded-xl bg-brand-500/10 px-4 py-2.5 text-xs font-bold text-brand-500"
+        >
+          <Icon name="comments" /> جستجو با دستیار
+        </Link>
+      </header>
       <div className="glass-card space-y-3 rounded-2xl border border-slate-200 bg-light-surface p-4 dark:border-dark-border dark:bg-dark-surface">
         <div className="flex flex-col gap-3 md:flex-row">
           <div className="relative flex-1">
@@ -251,12 +274,12 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
           </select>
         </div>
         {!demo && (
-          <div className="flex flex-wrap gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <input
               aria-label="نقش شغلی"
               value={targetRole}
               onChange={(e) => setTargetRole(e.target.value)}
-              placeholder="نقش شغلی، مثل Backend"
+              placeholder="عنوان شغلی، مثلاً حسابدار"
               className="rounded-xl border p-2 dark:bg-dark-card"
             />
             <input
@@ -385,7 +408,7 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
         </p>
       )}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="max-h-[700px] space-y-3 overflow-y-auto pr-1 lg:col-span-5">
+        <div className="space-y-3 lg:col-span-7">
           {!loading && !filtered.length && (
             <p className="p-4 text-xs text-slate-400">
               هیچ شغلی با این مشخصات یافت نشد.
@@ -394,11 +417,20 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
           {filtered.map((job) => (
             <button
               key={job.id}
-              onClick={() => setSelectedId(job.id)}
+              onClick={() => {
+                setSelectedId(job.id);
+                if (window.matchMedia?.("(max-width: 1023px)").matches)
+                  requestAnimationFrame(() =>
+                    detailsRef.current?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    }),
+                  );
+              }}
               aria-pressed={selected?.id === job.id}
               className={`interactive-hover w-full space-y-2 rounded-2xl border p-4 text-right transition-all ${selected?.id === job.id ? "border-brand-500 bg-brand-500/5" : "border-slate-200 bg-light-surface dark:border-dark-border dark:bg-dark-surface"}`}
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <h2 className="text-sm font-bold text-slate-800 dark:text-white">
                     {job.title}
@@ -437,7 +469,10 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
             </button>
           ))}
         </div>
-        <div className="glass-card sticky top-6 h-fit rounded-2xl border border-slate-200 bg-light-surface p-6 dark:border-dark-border dark:bg-dark-surface lg:col-span-7">
+        <div
+          ref={detailsRef}
+          className="glass-card h-fit scroll-mt-24 rounded-3xl border border-slate-200 bg-light-surface p-5 dark:border-dark-border dark:bg-dark-surface sm:p-6 lg:sticky lg:top-24 lg:col-span-5"
+        >
           {selected ? (
             <div className="space-y-6">
               <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4 dark:border-dark-border">
@@ -481,7 +516,24 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
                 </p>
               </div>
               {match?.explanation && (
-                <p className="text-sm leading-7">{match.explanation}</p>
+                <div className="rounded-2xl border border-brand-500/15 bg-brand-500/5 p-4">
+                  <p className="text-xs leading-7">{match.explanation}</p>
+                  {!analyzed && match.reason === "RESUME_REQUIRED" && (
+                    <Link
+                      href={`/resume?job=${selected.id}`}
+                      className="mt-2 inline-flex text-xs font-bold text-brand-500"
+                    >
+                      ساخت رزومه برای محاسبه تطابق{" "}
+                      <Icon name="arrow-left" className="mr-2" />
+                    </Link>
+                  )}
+                  {match.status === "partial" && (
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      تحلیل براساس بخش‌های مشخص آگهی است؛ پوشش اطلاعات{" "}
+                      {match.evidenceCoverage}٪.
+                    </p>
+                  )}
+                </div>
               )}
               {!selected.demo && isAuthenticated && (
                 <div className="space-y-3">
@@ -524,11 +576,11 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
                   {feedbackNotice && <p role="status">{feedbackNotice}</p>}
                 </div>
               )}
-              <div className="grid grid-cols-1 gap-4 pt-2 md:grid-cols-2">
+              <div className={`grid grid-cols-1 gap-4 pt-2 ${selected.demo || analyzed ? "md:grid-cols-2" : ""}`}>
                 <div className="space-y-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                   <h3 className="flex items-center gap-1.5 text-xs font-bold text-emerald-500">
                     <Icon name="circle-check" />
-                    {selected.demo || match
+                    {selected.demo || analyzed
                       ? "مهارت‌های منطبق با شما"
                       : "مهارت‌های موردنیاز آگهی"}{" "}
                     ({matched.length})
@@ -544,7 +596,7 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
                     ))}
                   </div>
                 </div>
-                <div className="space-y-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+                {(selected.demo || analyzed) && <div className="space-y-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
                   <h3 className="flex items-center gap-1.5 text-xs font-bold text-amber-500">
                     <Icon name="triangle-exclamation" />
                     شکاف مهارت (Skill Gap)
@@ -558,13 +610,8 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
                         {skill}
                       </span>
                     ))}
-                    {!selected.demo && !match && (
-                      <span className="text-[10px] text-slate-400">
-                        تحلیل تطابق هنوز دریافت نشده است.
-                      </span>
-                    )}
                   </div>
-                </div>
+                </div>}
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-dark-border">
                 <span className="text-xs text-slate-400">

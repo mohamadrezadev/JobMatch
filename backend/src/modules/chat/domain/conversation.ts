@@ -10,7 +10,9 @@ export const INTENTS = [
 export type ChatIntent = (typeof INTENTS)[number];
 export interface JobSearchIntent {
   targetRoles: string[];
+  requestedCount?: number;
   preferredSkills?: string[];
+  requiredSkills?: string[];
   excludedSkills?: string[];
   workTypes?: Array<"Remote" | "Hybrid" | "OnSite">;
   locations?: string[];

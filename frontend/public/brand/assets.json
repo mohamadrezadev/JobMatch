@@ -1,46 +1,31 @@
 {
-  "karmatch-vertical.png": {
-    "source": "ChatGPT Image Oct 6, 2026, 10_06_05 AM-3.png",
-    "width": 640,
-    "height": 632
-  },
-  "karmatch-full.png": {
-    "source": "ChatGPT Image Oct 6, 2026, 10_06_03 AM-1.png",
-    "width": 1200,
-    "height": 280
-  },
-  "karmatch-wordmark.png": {
-    "source": "ChatGPT Image Oct 6, 2026, 10_06_04 AM-2.png",
-    "width": 1200,
-    "height": 267
-  },
   "karmatch-icon-32.png": {
-    "source": "ChatGPT Image Oct 6, 2026, 10_06_07 AM-4.png",
+    "source": "karmatch-mark.svg",
     "width": 32,
     "height": 32
   },
   "karmatch-icon-48.png": {
-    "source": "ChatGPT Image Oct 6, 2026, 10_06_07 AM-4.png",
+    "source": "karmatch-mark.svg",
     "width": 48,
     "height": 48
   },
   "karmatch-icon-180.png": {
-    "source": "ChatGPT Image Oct 6, 2026, 10_06_07 AM-4.png",
+    "source": "karmatch-mark.svg",
     "width": 180,
     "height": 180
   },
   "karmatch-icon-192.png": {
-    "source": "ChatGPT Image Oct 6, 2026, 10_06_07 AM-4.png",
+    "source": "karmatch-mark.svg",
     "width": 192,
     "height": 192
   },
   "karmatch-icon-512.png": {
-    "source": "ChatGPT Image Oct 6, 2026, 10_06_07 AM-4.png",
+    "source": "karmatch-mark.svg",
     "width": 512,
     "height": 512
   },
   "karmatch-maskable-512.png": {
-    "source": "ChatGPT Image Oct 6, 2026, 10_06_07 AM-4.png",
+    "source": "karmatch-mark.svg",
     "width": 512,
     "height": 512
   }

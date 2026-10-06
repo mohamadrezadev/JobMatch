@@ -24,7 +24,7 @@ export class ChatService {
     const previous = conversationId
       ? await this.repository.get(userId, conversationId)
       : undefined;
-    const result = this.extractor.extract(
+    const result = await this.extractor.resolve(
       message,
       previous?.context ?? emptyContext(),
     );
@@ -44,6 +44,7 @@ export class ChatService {
       message: reply,
       intent: result.intent,
       ...result.context,
+      understandingMode: result.understandingMode,
       readyForSearch,
     };
   }

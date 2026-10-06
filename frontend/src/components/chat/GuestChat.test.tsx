@@ -95,4 +95,96 @@ describe("Guest conversation", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument(),
     );
   });
+  it("keeps conversation usable after naming a role before all five messages are consumed", async () => {
+    (guestChatClient.get as jest.Mock).mockResolvedValue({
+      data: {
+        data: {
+          ...empty,
+          remaining: 4,
+          context: {
+            ...empty.context,
+            searchContext: { targetRoles: ["حسابداری"] },
+          },
+        },
+      },
+    });
+    render(<GuestChat />);
+    const input = screen.getByLabelText("پیام شما");
+    fireEvent.change(input, { target: { value: "تهران" } });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "ارسال پیام" })).toBeEnabled(),
+    );
+    expect(
+      screen.queryByRole("link", { name: /ثبت‌نام و ادامه/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/برای یافتن آگهی‌های واقعی/),
+    ).not.toBeInTheDocument();
+  });
+  it("shows search progress and actual job links after the role message", async () => {
+    let resolveMessage!: (value: unknown) => void;
+    (guestChatClient.post as jest.Mock).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveMessage = resolve;
+        }),
+    );
+    render(<GuestChat />);
+    fireEvent.change(screen.getByLabelText("پیام شما"), {
+      target: { value: "حسابدار" },
+    });
+    const send = screen.getByRole("button", { name: "ارسال پیام" });
+    await waitFor(() => expect(send).toBeEnabled());
+    fireEvent.click(send);
+    await screen.findByText(/منابع شغلی همزمان جستجو می‌شوند/);
+    resolveMessage({
+      data: {
+        data: {
+          ...empty,
+          remaining: 3,
+          messages: [
+            { id: "a", role: "assistant", content: "۱ موقعیت مرتبط پیدا شد." },
+          ],
+          discovery: {
+            partial: false,
+            sources: [],
+            jobs: [
+              {
+                title: "حسابدار",
+                company: "شرکت نمونه",
+                location: "تهران",
+                workType: "OnSite",
+                salaryMin: 35000000,
+                salaryMax: null,
+                currency: "TOMAN",
+                salaryPeriod: "MONTHLY",
+                source: "jobinja.ir",
+                sourceUrl: "https://jobinja.ir/jobs/1",
+                warnings: [],
+              },
+            ],
+          },
+        },
+      },
+    });
+    await screen.findByRole("heading", { name: "حسابدار" });
+    expect(
+      screen.getByRole("link", { name: "مشاهده آگهی اصلی" }),
+    ).toHaveAttribute("href", "https://jobinja.ir/jobs/1");
+    expect(screen.getByText(/۳۵٬۰۰۰٬۰۰۰ تومان/)).toBeInTheDocument();
+  });
+  it("starts discovery for an already prepared guest conversation", async () => {
+    const prepared = { ...empty, remaining: 3, context: { ...empty.context,
+      searchContext: { targetRoles: ["حسابدار"], workTypes: ["OnSite"], minimumSalary: 30000000 },
+    } };
+    (guestChatClient.get as jest.Mock).mockResolvedValue({ data: { data: prepared } });
+    (guestChatClient.post as jest.Mock).mockResolvedValue({ data: { data: { ...prepared,
+      discovery: { jobs: [], sources: [], partial: false },
+    } } });
+    render(<GuestChat />);
+    const start = await screen.findByRole("button", { name: "جستجوی فرصت‌های شغلی" });
+    fireEvent.click(start);
+    await waitFor(() => expect(guestChatClient.post).toHaveBeenCalledWith("/api/chat/guest/message", { message: "دوباره جستجو کن" }));
+    await screen.findByRole("region", { name: "نتایج جستجوی مهمان" });
+  });
 });

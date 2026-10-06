@@ -33,6 +33,7 @@ export interface SourceReport {
   found: number;
   accepted: number;
   rejected: number;
+  evaluated?: number;
   error?: string;
 }
 export interface DiscoveryResult {
@@ -82,10 +83,51 @@ export function queryFor(source: string, intent: JobSearchIntent) {
       ],
   );
   // Preferred skills rank results later; do not make them mandatory search terms.
-  return `site:${source} ${intent.targetRoles.map(safe).join(" OR ")} استخدام ${(work ?? []).join(" OR ")} ${(intent.locations ?? []).map(safe).join(" ")}`.trim();
+  return `site:${source} ${intent.targetRoles.map(safe).join(" OR ")} ${(intent.requiredSkills ?? []).map(safe).join(" ")} استخدام ${(work ?? []).join(" OR ")} ${(intent.locations ?? []).map(safe).join(" ")}`.trim();
 }
-export function filterAndRank(jobs: DiscoveredJob[], intent: JobSearchIntent) {
+export function normalizedExperience(value: string | null | undefined) {
+  const text = normalizeText(value ?? "");
+  if (/\bjunior\b|جونیور/.test(text)) return "Junior";
+  if (/\bsenior\b|سینیور|ارشد/.test(text)) return "Senior";
+  if (/\bmid(?:[ -]?level)?\b|میدلول|میانی/.test(text)) return "Mid";
+  return null;
+}
+export function salaryConfirmed(job: DiscoveredJob, intent: JobSearchIntent) {
+  return (
+    intent.minimumSalary == null ||
+    (job.currency === "TOMAN" &&
+      job.salaryPeriod === "MONTHLY" &&
+      job.salaryMin != null &&
+      job.salaryMin >= intent.minimumSalary)
+  );
+}
+export function filterAndRank(
+  jobs: DiscoveredJob[],
+  intent: JobSearchIntent,
+  rankingExperienceLevel?: string,
+) {
+  // Existing conversation JSON can predate requiredSkills. Preserve the same
+  // conjunction for those stored Backend/.NET requests without a DB migration.
+  const compoundDotnet =
+    intent.targetRoles.includes(".NET Developer") &&
+    intent.targetRoles.some((role) =>
+      [
+        "Backend Developer",
+        "Frontend Developer",
+        "Full Stack Developer",
+      ].includes(role),
+    );
+  const targetRoles = compoundDotnet
+    ? intent.targetRoles.filter((role) => role !== ".NET Developer")
+    : intent.targetRoles;
+  const requiredSkills = [
+    ...(intent.requiredSkills ?? []),
+    ...(compoundDotnet ? [".NET"] : []),
+  ];
   const aliases: Record<string, string[]> = {
+    حسابدار: ["حسابدار", "accountant", "accounting"],
+    حسابداری: ["حسابدار", "accountant", "accounting"],
+    accountant: ["حسابدار", "accountant"],
     "backend developer": ["backend", "back-end", "بک اند", "بک‌اند", "بکاند"],
     "frontend developer": ["frontend", "front-end", "فرانت"],
     "node.js developer": ["node.js", "nodejs", "node js", "نود"],
@@ -103,15 +145,25 @@ export function filterAndRank(jobs: DiscoveredJob[], intent: JobSearchIntent) {
   };
   const has = (text: string, term: string) =>
     normalizeText(text).includes(normalizeText(term));
+  const matchesTitle = (title: string, role: string) => {
+    const known = aliases[normalizeText(role)];
+    if (known) return known.some((term) => has(title, term));
+    // Open titles need all their words, allowing punctuation/word order in an
+    // actual posting without accepting a different job with one shared word.
+    const words = (value: string) =>
+      normalizeText(value)
+        .replace(/[^\p{L}\p{N}+#.]+/gu, " ")
+        .split(/\s+/)
+        .filter(Boolean)
+        // Users name the occupation; postings may use the person/job title.
+        .map((word) => (word === "حسابداری" ? "حسابدار" : word));
+    const terms = words(role);
+    const actual = new Set(words(title));
+    return terms.length > 0 && terms.every((term) => actual.has(term));
+  };
   return jobs
     .filter((job) => {
-      if (
-        !intent.targetRoles.some((role) =>
-          (
-            aliases[normalizeText(role)] ?? [role.replace(/ developer$/i, "")]
-          ).some((term) => has(job.title, term)),
-        )
-      )
+      if (!targetRoles.some((role) => matchesTitle(job.title, role)))
         return false;
       if (
         intent.workTypes?.length &&
@@ -120,6 +172,7 @@ export function filterAndRank(jobs: DiscoveredJob[], intent: JobSearchIntent) {
         return false;
       if (
         intent.locations?.length &&
+        !(job.workType === "Remote" && !job.location) &&
         (!job.location ||
           !intent.locations.some(
             (location) =>
@@ -133,6 +186,25 @@ export function filterAndRank(jobs: DiscoveredJob[], intent: JobSearchIntent) {
       )
         return false;
       const requirements = [job.title, ...job.requiredSkills].join(" ");
+      const technologyEvidence = [requirements, ...job.preferredSkills].join(
+        " ",
+      );
+      if (
+        requiredSkills.some(
+          (skill) =>
+            !(skill === ".NET" ? aliases[".net developer"] : [skill]).some(
+              (term) => has(technologyEvidence, term),
+            ),
+        )
+      )
+        return false;
+      if (
+        intent.experienceLevel &&
+        (!normalizedExperience(intent.experienceLevel) ||
+          normalizedExperience(job.experienceLevel) !==
+            normalizedExperience(intent.experienceLevel))
+      )
+        return false;
       if (intent.excludedSkills?.some((skill) => has(requirements, skill)))
         return false;
       // A range must guarantee the requested minimum. Unknown salaries remain visible with a warning.
@@ -157,6 +229,12 @@ export function filterAndRank(jobs: DiscoveredJob[], intent: JobSearchIntent) {
     })
     .sort((a, b) => {
       const score = (job: DiscoveredJob) =>
+        (!intent.experienceLevel &&
+        rankingExperienceLevel &&
+        normalizedExperience(job.experienceLevel) ===
+          normalizedExperience(rankingExperienceLevel)
+          ? 1
+          : 0) +
         (intent.preferredSkills ?? []).filter((skill) =>
           has(
             [job.title, ...job.requiredSkills, ...job.preferredSkills].join(

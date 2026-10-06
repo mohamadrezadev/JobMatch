@@ -62,21 +62,22 @@ describe("Discovery use case", () => {
     expect(repository.fail).toHaveBeenCalledWith(
       "run",
       "JOB_SEARCH_PROVIDER_UNAVAILABLE",
+      expect.any(Array),
     );
   });
   it("distinguishes empty success from provider failure", async () => {
-    provider.discover.mockResolvedValue({
-      jobs: [],
-      sources: [
-        {
-          source: "jobvision.ir",
+    provider.discover.mockImplementation(
+      async (_intent, _signal, _progress, options) => ({
+        jobs: [],
+        sources: options!.sources.map((source) => ({
+          source,
           query: "q",
           found: 0,
           accepted: 0,
           rejected: 0,
-        },
-      ],
-    });
+        })),
+      }),
+    );
     await service.search("owner", "conversation");
     expect(repository.complete).toHaveBeenCalledWith(
       "run",
@@ -84,26 +85,28 @@ describe("Discovery use case", () => {
       expect.any(Array),
       false,
     );
-    provider.discover.mockResolvedValue({
-      jobs: [],
-      sources: [
-        {
-          source: "jobvision.ir",
+    provider.discover.mockImplementation(
+      async (_intent, _signal, _progress, options) => ({
+        jobs: [],
+        sources: options!.sources.map((source) => ({
+          source,
           query: "q",
           found: 0,
           accepted: 0,
           rejected: 0,
           error: "SEARCH_FAILED",
-        },
-      ],
-    });
+        })),
+      }),
+    );
     await expect(service.search("owner", "conversation")).rejects.toMatchObject(
       { code: "JOB_DISCOVERY_UNAVAILABLE" },
     );
     expect(repository.fail).toHaveBeenLastCalledWith(
       "run",
       "JOB_DISCOVERY_UNAVAILABLE",
-      [expect.objectContaining({ error: "SEARCH_FAILED" })],
+      expect.arrayContaining([
+        expect.objectContaining({ error: "SEARCH_FAILED" }),
+      ]),
     );
   });
   it("cancels provider work at the total deadline and records a safe failure", async () => {
@@ -137,5 +140,68 @@ describe("Discovery use case", () => {
       ),
     ).rejects.toMatchObject({ code: "JOB_DISCOVERY_UNAVAILABLE" });
     expect(repository.fail).toHaveBeenCalled();
+  });
+  it("distinguishes filtered vacancies from provider unavailability despite partial page failures", async () => {
+    provider.discover.mockResolvedValue({
+      jobs: [],
+      sources: [
+        {
+          source: "jobinja.ir",
+          query: "q",
+          found: 31,
+          accepted: 0,
+          rejected: 10,
+          evaluated: 6,
+          error: "FETCH_OR_VALIDATION_FAILED",
+        },
+      ],
+    });
+    await service.search("owner", "conversation");
+    expect(repository.complete).toHaveBeenCalledWith(
+      "run",
+      [],
+      expect.any(Array),
+      true,
+    );
+    expect(repository.fail).not.toHaveBeenCalled();
+  });
+  it("retains an empty completed source as partial success when other sources time out", async () => {
+    provider.discover.mockImplementation(async (_intent, signal, progress) => {
+      const report = {
+        source: "jobinja.ir",
+        query: "q",
+        found: 31,
+        accepted: 0,
+        rejected: 10,
+      };
+      await progress!.sourceCompleted(report);
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) resolve();
+        else signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      return { jobs: [], sources: [report] };
+    });
+    repository.complete.mockResolvedValue({
+      runId: "run",
+      jobs: [],
+      sources: [],
+      partial: true,
+      code: "NO_JOBS_FOUND",
+    });
+    await expect(
+      new JobDiscoveryService(repository, provider, 20).search(
+        "owner",
+        "conversation",
+      ),
+    ).resolves.toMatchObject({ partial: true, code: "NO_JOBS_FOUND" });
+    expect(repository.fail).not.toHaveBeenCalled();
+    expect(repository.complete).toHaveBeenCalledWith(
+      "run",
+      [],
+      expect.arrayContaining([
+        expect.objectContaining({ source: "jobinja.ir", found: 31 }),
+      ]),
+      true,
+    );
   });
 });

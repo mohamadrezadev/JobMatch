@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import apiClient from "@/lib/api-client";
 import { useAuthStore } from "@/stores/useAuthStore";
 import {
@@ -11,6 +12,7 @@ import type { Profile, UserSkill } from "@/types/user";
 import { Icon } from "./Icon";
 import { DemoNotice } from "./DemoNotice";
 import { recordEvent } from "@/lib/analytics";
+import { WorkspaceHeading, accountField } from "./AccountWorkspace";
 
 interface SavedResume {
   id: string;
@@ -28,13 +30,17 @@ interface SavedResume {
 }
 
 export function ResumeStudio() {
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, isAuthenticated, isProfileComplete } = useAuthStore();
   const { owner, draft, initialize, update } = useResumeDraftStore();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [jobId, setJobId] = useState("");
   const [resumeId, setResumeId] = useState("");
   const [resumes, setResumes] = useState<SavedResume[]>([]);
+  const [targetJob, setTargetJob] = useState<{
+    title: string;
+    company: string;
+  } | null>(null);
   const restored = useRef(false);
   const preview =
     process.env.NODE_ENV !== "production" &&
@@ -42,6 +48,25 @@ export function ResumeStudio() {
     new URLSearchParams(window.location.search).get("preview") === "design";
   const currentOwner =
     isAuthenticated && user ? user.id : preview ? "demo" : "guest";
+  useEffect(() => {
+    setTargetJob(null);
+    if (!jobId || jobId.startsWith("demo-")) return;
+    let alive = true;
+    apiClient
+      .get(`/api/jobs/${jobId}`)
+      .then((response) => {
+        const job = unwrap(response.data) as {
+          title?: string;
+          company?: string;
+        };
+        if (alive && job.title && job.company)
+          setTargetJob({ title: job.title, company: job.company });
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [jobId]);
   function restore(resume: SavedResume) {
     restored.current = true;
     setResumeId(resume.id);
@@ -87,12 +112,19 @@ export function ResumeStudio() {
   useEffect(() => {
     setJobId(new URLSearchParams(window.location.search).get("job") ?? "");
     setNotice("");
-    if (owner === currentOwner) return;
-    initialize(
-      currentOwner,
-      user ? `${user.firstName} ${user.lastName}` : "",
-      user?.email,
-    );
+    if (owner !== currentOwner)
+      initialize(
+        currentOwner,
+        user ? `${user.firstName} ${user.lastName}` : "",
+        user?.email,
+      );
+    else if (user)
+      useResumeDraftStore
+        .getState()
+        .update({
+          name: `${user.firstName} ${user.lastName}`,
+          email: user.email,
+        });
     if (!isAuthenticated) return;
     let alive = true;
     setBusy(true);
@@ -224,25 +256,76 @@ export function ResumeStudio() {
       setBusy(false);
     }
   }
-  const inputClass =
-    "w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-slate-800 dark:border-dark-border dark:bg-dark-card dark:text-slate-100";
+  const inputClass = accountField;
   return (
-    <section className="animate-fade-in space-y-6">
-      <div className="glass-card flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-light-surface p-4 dark:border-dark-border dark:bg-dark-surface md:flex-row md:items-center">
-        <div>
-          <h1 className="text-base font-extrabold text-slate-800 dark:text-white">
-            استودیو رزومه‌ساز استاندارد
-          </h1>
-          <p className="text-xs text-slate-400">
-            تنظیم رزومه فارسی بدون ادعای خلاف واقع با استانداردهای بین‌المللی
-            ATS
-          </p>
+    <section className="mx-auto max-w-6xl space-y-7">
+      <WorkspaceHeading
+        eyebrow="حساب من / رزومه‌ساز"
+        title="رزومه‌ای برای فرصت بعدی تو"
+        description="آگهی را انتخاب کن، اطلاعات واقعی‌ات را مرور کن و نسخه‌ای متناسب با آن فرصت بساز."
+        action={
+          <Link
+            href="/jobs"
+            className="inline-flex items-center gap-2 text-xs font-bold text-brand-500"
+          >
+            مشاهده فرصت‌ها <Icon name="arrow-left" />
+          </Link>
+        }
+      />
+      <div className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white p-3 dark:border-dark-border dark:bg-dark-surface sm:p-4">
+        {[
+          ["آگهی هدف", Boolean(jobId)],
+          ["ساخت و ویرایش", Boolean(resumeId)],
+          ["دریافت رزومه", Boolean(resumeId)],
+        ].map(([label, done], index) => (
+          <div
+            key={String(label)}
+            className="flex flex-col items-center gap-2 text-center sm:flex-row sm:text-right"
+          >
+            <span
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${done ? "bg-brand-500/10 text-brand-500" : "bg-slate-100 text-slate-400 dark:bg-dark-card"}`}
+            >
+              {index + 1}
+            </span>
+            <span className="text-[10px] font-semibold sm:text-xs">
+              {label}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-5 rounded-3xl border border-brand-500/20 bg-brand-500/5 p-5 sm:p-6">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-500">
+            <Icon name="briefcase" />
+          </span>
+          <div className="min-w-0">
+            <p className="mb-1 text-[10px] font-bold text-brand-500">
+              فرصت هدف رزومه
+            </p>
+            <h2 className="break-words text-sm font-extrabold">
+              {targetJob?.title ??
+                (jobId ? "آگهی منتخب شما" : "هنوز آگهی انتخاب نکرده‌ای")}
+            </h2>
+            <p className="mt-1 text-xs leading-6 text-slate-500">
+              {targetJob?.company ??
+                (jobId
+                  ? "نسخه رزومه براساس اطلاعات ثبت‌شده شما ساخته می‌شود."
+                  : "اول فرصت دلخواهت را پیدا کن؛ بعد رزومه‌اش را اینجا بساز.")}
+            </p>
+            <Link
+              href="/jobs"
+              className="mt-2 inline-flex items-center gap-2 text-xs font-bold text-brand-500"
+            >
+              {jobId ? "تغییر آگهی" : "انتخاب آگهی"}
+              <Icon name="arrow-left" />
+            </Link>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={tailor}
-            disabled={busy}
-            className="flex items-center gap-2 rounded-xl bg-emerald-500 px-3.5 py-2 text-xs font-bold text-white transition-all hover:bg-emerald-600"
+            disabled={busy || (currentOwner !== "demo" && !jobId)}
+            className="flex items-center gap-2 rounded-xl bg-brand-500 px-4 py-3 text-xs font-bold text-white transition-all hover:bg-brand-600 disabled:opacity-40"
           >
             <Icon name="wand-magic-sparkles" />
             <span>
@@ -252,18 +335,36 @@ export function ResumeStudio() {
           <button
             onClick={download}
             disabled={busy || (currentOwner !== "demo" && !resumeId)}
-            className="flex items-center gap-2 rounded-xl bg-slate-800 px-3.5 py-2 text-xs font-bold text-white hover:opacity-90 dark:bg-slate-200 dark:text-slate-900"
+            className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 dark:border-dark-border dark:bg-dark-surface dark:text-slate-200 disabled:opacity-40"
           >
-            <Icon name="print" />
+            <Icon name="download" />
             <span>دانلود PDF</span>
           </button>
           {currentOwner !== "demo" && (
-            <button disabled={busy || !resumeId} onClick={saveEdits}>
+            <button
+              disabled={busy || !resumeId}
+              onClick={saveEdits}
+              className="rounded-xl px-4 py-3 text-xs font-bold text-brand-500 disabled:opacity-40"
+            >
               ذخیره ویرایش
             </button>
           )}
         </div>
       </div>
+      {isAuthenticated && !isProfileComplete && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-xs leading-7 dark:border-dark-border dark:bg-dark-surface">
+          <p>
+            برای ساخت رزومه، مهارت‌ها و سابقه واقعی خود را در پروفایل تکمیل
+            کنید.
+          </p>
+          <Link
+            href="/profile"
+            className="mt-2 inline-flex text-xs font-bold text-brand-500"
+          >
+            تکمیل اطلاعات رزومه
+          </Link>
+        </div>
+      )}
       {currentOwner === "demo" && (
         <DemoNotice>
           رزومه پرهام رضایی نمونه مرجع است. پس از ورود اطلاعات حساب شما بارگذاری
@@ -281,7 +382,7 @@ export function ResumeStudio() {
       {currentOwner !== "demo" && (
         <div>
           {resumes.length ? (
-            <label>
+            <label className="block rounded-2xl border border-slate-200 bg-white p-5 text-xs font-bold dark:border-dark-border dark:bg-dark-surface">
               رزومه‌های ذخیره‌شده
               <select
                 aria-label="رزومه‌های ذخیره‌شده"
@@ -292,7 +393,7 @@ export function ResumeStudio() {
                   );
                   if (saved) restore(saved);
                 }}
-                className="mx-3 rounded border p-2 dark:bg-dark-card"
+                className={`${accountField} mt-3`}
               >
                 <option value="">انتخاب رزومه</option>
                 {resumes.map((row) => (
@@ -303,18 +404,24 @@ export function ResumeStudio() {
               </select>
             </label>
           ) : (
-            <p>
-              هنوز رزومه‌ای ذخیره نشده است. ابتدا یک موقعیت مناسب را از بخش
-              فرصت‌ها انتخاب کنید.
+            <p className="rounded-2xl border border-dashed border-slate-300 p-5 text-xs leading-7 text-slate-500 dark:border-dark-border">
+              {jobId
+                ? "برای این آگهی هنوز رزومه‌ای نساخته‌ای. پس از ثبت اطلاعات واقعی‌ات، دکمه سفارشی‌سازی را بزن."
+                : "هنوز رزومه‌ای ذخیره نشده است. ابتدا یک موقعیت مناسب را از بخش فرصت‌ها انتخاب کنید."}
             </p>
           )}
         </div>
       )}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="glass-card space-y-4 rounded-2xl border border-slate-200 bg-light-surface p-5 dark:border-dark-border dark:bg-dark-surface lg:col-span-5">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+        <div className="min-w-0 space-y-5 rounded-3xl border border-slate-200 bg-white p-5 dark:border-dark-border dark:bg-dark-surface sm:p-7 lg:col-span-5">
+          <h2 className="flex items-center gap-2 text-sm font-extrabold">
+            <Icon name="file-lines" className="text-brand-500" />
             ویرایش اطلاعات رزومه
           </h2>
+          <p className="text-xs leading-6 text-slate-500">
+            نام و عنوان از پروفایلت گرفته می‌شوند. متن و مهارت‌های رزومه را قبل
+            از دانلود مرور کن.
+          </p>
           <div className="space-y-3 text-xs">
             <div>
               <label
@@ -399,9 +506,13 @@ export function ResumeStudio() {
         </div>
         <div
           id="resume-print-area"
-          className="min-h-[600px] space-y-6 rounded-2xl border border-slate-200 bg-white p-8 text-xs text-slate-900 shadow-2xl lg:col-span-7"
+          className="min-w-0 min-h-[600px] space-y-7 break-words rounded-3xl border border-slate-200 bg-white p-5 text-xs text-slate-900 shadow-xl shadow-slate-900/5 sm:p-8 lg:col-span-7 lg:p-10"
         >
-          <div className="flex items-start justify-between gap-3 border-b-2 border-slate-800 pb-4">
+          <p className="flex items-center gap-2 text-[10px] font-bold text-slate-400 print:hidden">
+            <Icon name="file-lines" />
+            پیش‌نمایش رزومه
+          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b-2 border-slate-800 pb-5">
             <div>
               <h2
                 id="preview-name"
@@ -416,7 +527,7 @@ export function ResumeStudio() {
                 {draft.title || "عنوان شغلی"}
               </p>
             </div>
-            <div className="space-y-0.5 text-left text-[11px] text-slate-500">
+            <div className="min-w-0 space-y-0.5 text-left text-[11px] text-slate-500">
               <p>ایمیل: {draft.email}</p>
               {currentOwner === "demo" && (
                 <>
@@ -439,7 +550,7 @@ export function ResumeStudio() {
           </div>
           <div className="space-y-2">
             <h3 className="border-b border-slate-200 pb-1 text-xs font-extrabold uppercase tracking-wide text-slate-900">
-              مهارت‌های فنی
+              مهارت‌های اصلی
             </h3>
             <div id="preview-skills" className="flex flex-wrap gap-1.5">
               {[

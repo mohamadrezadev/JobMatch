@@ -29,12 +29,20 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
     intent: JobSearchIntent,
     signal: AbortSignal,
     progress?: DiscoveryProgress,
+    options?: { sources: string[] },
   ) {
+    const selected = options?.sources ?? this.sources.slice(0, 4);
+    if (
+      !selected.length ||
+      new Set(selected).size !== selected.length ||
+      selected.some((source) => !this.sources.includes(source))
+    )
+      throw new DiscoveryError("SOURCE_REJECTED", 400);
     await this.client.ready(signal);
     const jobs: DiscoveredJob[] = [],
       reports: SourceReport[] = [];
     await Promise.all(
-      this.sources.slice(0, 4).map(async (source) => {
+      selected.map(async (source) => {
         const query = queryFor(source, intent),
           report: SourceReport = {
             source,
@@ -118,6 +126,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                   .flatMap((role) =>
                     normalizeText(role)
                       .replace(/developer/g, "")
+                      .replace(/حسابداری/g, "حسابدار accountant accounting")
                       .split(/[\s.]+/),
                   )
                   .filter((term) => term.length > 2);
@@ -158,6 +167,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                 continue;
               }
               jobs.push(job);
+              report.evaluated = (report.evaluated ?? 0) + 1;
               if (!progress || (await progress.jobCandidate(job)))
                 report.accepted++;
               else report.rejected++;
@@ -188,6 +198,8 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
 export function jobDetailUrl(value: string) {
   try {
     const url = new URL(value);
+    if (/(?:^|\.)irantalent\.com$/.test(url.hostname))
+      return /^\/(?:en\/)?job\/[^/]+\/\d+\/?$/.test(url.pathname);
     return (
       /\/jobs?\/[^/]+/i.test(url.pathname) ||
       (url.hostname.endsWith("e-estekhdam.com") &&

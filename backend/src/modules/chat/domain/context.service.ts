@@ -1,4 +1,5 @@
 import { ChatIntent, ConversationContext } from "./conversation";
+import { openRole } from "./open-role";
 
 const roles: Array<[RegExp, string, string?]> = [
   [/بک\s*ا?ند|back\s*end/i, "Backend Developer"],
@@ -11,7 +12,7 @@ const roles: Array<[RegExp, string, string?]> = [
   [/(^|[^a-z])typescript(?=$|[^a-z])/i, "TypeScript Developer", "TypeScript"],
   [/(^|[^a-z])javascript(?=$|[^a-z])/i, "JavaScript Developer", "JavaScript"],
   [
-    /\.net(?=$|[^a-z])|(?:^|[^a-z])dot\s*net(?=$|[^a-z])|دات\s*نت|سی\s*شارپ|c#/i,
+    /(?:asp)?\.net(?=$|[^a-z])|(?:^|[^a-z])dot\s*net(?=$|[^a-z])|دات\s*نت|سی\s*شارپ|c#/i,
     ".NET Developer",
     ".NET",
   ],
@@ -32,9 +33,23 @@ export function normalize(text: string): string {
 }
 const unique = (values: string[]) => [...new Set(values)];
 const factPattern =
-  /بلد|نمی دانم|don't know|do not know|سابقه دار|تجربه دار|ساختم|دانشجو|فارغ التحصیل|i (?:know|have|built|am)|years? (?:of )?experience/i;
+  /بلد|نمی دانم|don't know|do not know|سابقه دار|تجربه دار|ساختم|دانشجو|فارغ التحصیل|i (?:know|have|built|am(?! looking))|years? (?:of )?experience/i;
 
 export class ContextService {
+  async resolve(
+    message: string,
+    previous: ConversationContext,
+  ): Promise<
+    ReturnType<ContextService["extract"]> & {
+      understandingMode: "model" | "fallback";
+    }
+  > {
+    return {
+      ...this.extract(message, previous),
+      understandingMode: "fallback",
+    };
+  }
+
   extract(
     message: string,
     previous: ConversationContext,
@@ -43,6 +58,21 @@ export class ContextService {
     const search = context.searchContext;
     const facts = context.candidateFacts;
     const text = normalize(message);
+    const count = text.match(
+      /(?:^|\s)(\d+)\s*(?:تا\s*)?(?:شغل|کار|آگهی|نتیجه|موقعیت|jobs?|results?|listings?)(?=\s|$)/i,
+    );
+    if (count)
+      search.requestedCount = Math.max(1, Math.min(50, Number(count[1])));
+    if (
+      /^(?:دوباره\s+)?(?:جستجو کن|بگرد|تلاش کن)$|^(?:try again|search again|retry)$/i.test(
+        text,
+      )
+    )
+      return {
+        context,
+        intent: "JOB_SEARCH",
+        understood: search.targetRoles.length > 0,
+      };
     const directIntent: ChatIntent | undefined =
       /رزومه.*(?:بساز|ساخت|آگهی)|(?:build|create|generate).*resume/.test(text)
         ? "RESUME_BUILD"
@@ -92,7 +122,36 @@ export class ContextService {
         if (years) facts.experienceYears = Number(years[1]);
         continue;
       }
-      const matched = roles.filter(([pattern]) => pattern.test(clause));
+      let matched = roles.filter(([pattern]) => pattern.test(clause));
+      const title = openRole(clause);
+      if (title) {
+        const titleMatches = roles.filter(([pattern]) => pattern.test(title));
+        // Known aliases help normalize titles, but are never an allowlist.
+        // Strip recognized technology names before accepting an unknown role.
+        const freeTitle = titleMatches
+          .filter(([, , skill]) => skill)
+          .reduce(
+            (value, [pattern]) =>
+              value.replace(new RegExp(pattern.source, "gi"), " ").trim(),
+            title,
+          )
+          .replace(/\s+/g, " ");
+        if (
+          !titleMatches.some(([, , skill]) => !skill) &&
+          freeTitle &&
+          openRole(freeTitle)
+        ) {
+          const technology = matched.flatMap(([, , skill]) =>
+            skill ? [skill] : [],
+          );
+          search.targetRoles = [freeTitle];
+          search.requiredSkills = unique(technology);
+          search.preferredSkills = unique(technology);
+          matched = [];
+          preference = true;
+          roleChanged = true;
+        }
+      }
       if (matched.length) {
         preference = true;
         const excluded =
@@ -114,11 +173,15 @@ export class ContextService {
             : ordered[ordered.length - 1];
           search.targetRoles = [selected[1]];
           search.preferredSkills = selected[2] ? [selected[2]] : [];
+          search.requiredSkills = [];
         } else {
           for (const [, role, skill] of matched) {
             if (excluded) {
               search.targetRoles = search.targetRoles.filter((r) => r !== role);
               if (skill) {
+                search.requiredSkills = (search.requiredSkills ?? []).filter(
+                  (s) => s !== skill,
+                );
                 search.preferredSkills = (search.preferredSkills ?? []).filter(
                   (s) => s !== skill,
                 );
@@ -221,6 +284,26 @@ export class ContextService {
       }
     }
     if (fact) facts.statements = unique([...facts.statements, message]);
+    // A named technology combined with an occupational role is a requirement,
+    // not an alternative occupation. Candidate facts never create requirements.
+    if (
+      search.targetRoles.includes(".NET Developer") &&
+      search.targetRoles.some((role) =>
+        [
+          "Backend Developer",
+          "Frontend Developer",
+          "Full Stack Developer",
+        ].includes(role),
+      )
+    ) {
+      search.targetRoles = search.targetRoles.filter(
+        (role) => role !== ".NET Developer",
+      );
+      search.requiredSkills = unique([
+        ...(search.requiredSkills ?? []),
+        ".NET",
+      ]);
+    }
     let intent: ChatIntent;
     if (
       /رزومه.*(?:بساز|ساخت|آگهی)|(?:build|create|generate).*resume/.test(text)
