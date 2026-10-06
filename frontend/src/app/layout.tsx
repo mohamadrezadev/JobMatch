@@ -1,4 +1,5 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { PwaControls } from "@/components/pwa/PwaControls";
 import "@fontsource/vazirmatn/300.css";
 import "@fontsource/vazirmatn/400.css";
 import "@fontsource/vazirmatn/500.css";
@@ -13,6 +14,7 @@ export const metadata: Metadata = {
   description: "مهارت‌های تو، فرصت مناسب تو. کارمچ، دستیار هوشمند مسیر شغلی.",
   applicationName: "KarMatch",
   manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "KarMatch", statusBarStyle: "default" },
   icons: {
     icon: [
       { url: "/brand/karmatch-icon-32.png", sizes: "32x32", type: "image/png" },
@@ -25,6 +27,11 @@ export const metadata: Metadata = {
     },
   },
 };
+export const viewport: Viewport = {
+  themeColor: "#004bff",
+  width: "device-width",
+  initialScale: 1,
+};
 const themeScript = `try{var t=localStorage.getItem('pathly_theme');document.documentElement.classList.toggle('dark',t!=='light');document.documentElement.style.colorScheme=t==='light'?'light':'dark'}catch(e){}`;
 export default function RootLayout({
   children,
@@ -34,7 +41,10 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        {children}
+        <PwaControls />
+      </body>
     </html>
   );
 }

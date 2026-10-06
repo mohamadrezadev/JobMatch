@@ -59,3 +59,6 @@ frontend/.next-dev/
 backend/storage/
 # Local browser screenshots from branding verification
 frontend/test-results/brand/
+# Build-generated service worker and local PWA screenshots
+frontend/public/sw.js
+frontend/test-results/pwa/

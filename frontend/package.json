@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
-    "build": "next build",
+    "build": "next build && node scripts/build-pwa.cjs",
     "start": "next start",
     "lint": "next lint",
     "test": "jest",

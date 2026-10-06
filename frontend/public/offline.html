@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#004bff" />
+    <title>اتصال قطع است | KarMatch</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #0d1425;
+        color: #edf3ff;
+        font-family: Tahoma, Arial, sans-serif;
+        line-height: 2;
+      }
+      main {
+        width: 100%;
+        max-width: 480px;
+        text-align: center;
+        background: #172238;
+        border: 1px solid #2b3a54;
+        border-radius: 24px;
+        padding: 32px;
+      }
+      img {
+        width: 72px;
+        height: 72px;
+        border-radius: 16px;
+      }
+      h1 {
+        font-size: 24px;
+      }
+      p {
+        color: #b9c8de;
+        font-size: 14px;
+      }
+      button {
+        font: inherit;
+        border: 0;
+        border-radius: 12px;
+        padding: 10px 22px;
+        background: #004bff;
+        color: white;
+        cursor: pointer;
+      }
+      button:focus-visible {
+        outline: 3px solid #69e8bf;
+        outline-offset: 4px;
+      }
+      small {
+        display: block;
+        margin-top: 20px;
+        color: #9eb2ce;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/brand/karmatch-icon-192.png" alt="KarMatch — کارمچ" />
+      <h1>اتصال اینترنت قطع است</h1>
+      <p>
+        برای گفتگو، جست‌وجوی آگهی و ساخت رزومه به اینترنت نیاز داری. پس از
+        اتصال، دوباره تلاش کن.
+      </p>
+      <button type="button" id="retry">تلاش دوباره</button>
+      <small>مهارت‌های تو، فرصت مناسب تو.</small>
+    </main>
+    <script>
+      document.getElementById("retry").addEventListener("click", function () {
+        window.location.reload();
+      });
+    </script>
+  </body>
+</html>
