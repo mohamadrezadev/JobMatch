@@ -5,6 +5,7 @@ import {
   Put,
   Param,
   Body,
+  Query,
   UseGuards,
   Res,
 } from "@nestjs/common";
@@ -12,7 +13,11 @@ import { Response } from "express";
 import { ResumeService } from "./resume.service";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
-import { GenerateResumeDto, UpdateResumeDto } from "./dto/resume.dto";
+import {
+  GenerateResumeDto,
+  UpdateResumeDto,
+  UpdateBaseResumeDto,
+} from "./dto/resume.dto";
 
 @Controller("api/resume")
 @UseGuards(JwtAuthGuard)
@@ -46,6 +51,28 @@ export class ResumeController {
 @UseGuards(JwtAuthGuard)
 export class ResumesController {
   constructor(private readonly service: ResumeService) {}
+  @Get("base")
+  base(@CurrentUser() user: { sub: string }) {
+    return this.service.getBase(user.sub);
+  }
+  @Put("base")
+  saveBase(
+    @CurrentUser() user: { sub: string },
+    @Body() dto: UpdateBaseResumeDto,
+  ) {
+    return this.service.saveBase(user.sub, dto);
+  }
+  @Get("proposals")
+  proposals(
+    @CurrentUser() user: { sub: string },
+    @Query("jobId") jobId: string,
+  ) {
+    return this.service.proposals(user.sub, jobId);
+  }
+  @Post("proposals/:id/accept")
+  accept(@CurrentUser() user: { sub: string }, @Param("id") id: string) {
+    return this.service.acceptProposal(user.sub, id);
+  }
   @Get()
   list(@CurrentUser() user: { sub: string }) {
     return this.service.list(user.sub);

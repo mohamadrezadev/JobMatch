@@ -66,6 +66,8 @@ model User {
   profile         Profile?
   userSkills      UserSkill[]
   resumes         Resume[]
+  resumeBase      ResumeBase?
+  resumeProposals ResumeProposal[]
   feedbacks       JobFeedback[]
   conversations   Conversation[]
   discoveryRuns   JobDiscoveryRun[]
@@ -146,6 +148,7 @@ model Job {
   updatedAt       DateTime  @updatedAt
 
   resumes     Resume[]
+  resumeProposals ResumeProposal[]
   feedbacks   JobFeedback[]
 
   @@index([source])
@@ -168,6 +171,33 @@ model Resume {
 
   @@unique([userId, jobId])
   @@map("resumes")
+}
+
+model ResumeBase {
+  id        String @id @default(uuid())
+  userId    String @unique
+  content   Json
+  version   Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("resume_bases")
+}
+
+model ResumeProposal {
+  id             String @id @default(uuid())
+  userId         String
+  jobId          String
+  content        Json
+  sourceSnapshot Json
+  baseVersion    Int
+  status         String @default("PROPOSED")
+  createdAt      DateTime @default(now())
+  acceptedAt     DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  @@index([userId, jobId, createdAt])
+  @@map("resume_proposals")
 }
 
 model JobFeedback {

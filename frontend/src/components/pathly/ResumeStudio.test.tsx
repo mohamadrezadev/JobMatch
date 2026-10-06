@@ -7,6 +7,7 @@ let mockAuthenticated = false;
 jest.mock("@/stores/useAuthStore", () => ({
   useAuthStore: () => ({
     isAuthenticated: mockAuthenticated,
+    isProfileComplete: mockAuthenticated,
     user: mockAuthenticated
       ? {
           id: "owner",
@@ -22,7 +23,7 @@ jest.mock("@/lib/api-client", () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
 }));
 describe("Resume studio truthfulness and preview", () => {
-  it("reloads current profile facts even when this owner already has a draft", async () => {
+  it("reloads the server base even when this owner already has a draft", async () => {
     mockAuthenticated = true;
     useResumeDraftStore
       .getState()
@@ -35,13 +36,17 @@ describe("Resume studio truthfulness and preview", () => {
         data:
           url === "/api/resumes"
             ? []
-            : url.endsWith("/skills")
-              ? [{ skill: { name: "Excel" } }]
-              : {
+            : {
+                version: 0,
+                content: {
+                  name: "Actual User",
+                  email: "actual@example.test",
                   title: "حسابدار",
-                  bio: "Current biography",
-                  resumeFacts: ["Current education"],
+                  summary: "Current biography",
+                  highlights: ["Current education"],
+                  skills_to_emphasize: ["Excel"],
                 },
+              },
       }),
     );
     render(<ResumeStudio />);
@@ -57,6 +62,113 @@ describe("Resume studio truthfulness and preview", () => {
     expect(
       screen.getByLabelText("مهارت‌های اصلی (با ویرگول جدا کنید)"),
     ).toHaveValue("Excel");
+  });
+  it("keeps base and manual edits separate until a proposal is accepted", async () => {
+    mockAuthenticated = true;
+    window.history.replaceState({}, "", "/resume?job=job-id");
+    const content = {
+      name: "Actual User",
+      title: "Backend",
+      summary: "Saved base",
+      highlights: ["Real project"],
+      skills_to_emphasize: ["Node.js"],
+    };
+    const saved = {
+      id: "resume-id",
+      jobId: "job-id",
+      version: 2,
+      content: { ...content, summary: "Saved manual edit" },
+    };
+    const proposal = {
+      id: "proposal-id",
+      jobId: "job-id",
+      baseVersion: 1,
+      status: "PROPOSED",
+      content: { ...content, summary: "Real project" },
+    };
+    (apiClient.get as jest.Mock).mockImplementation((url: string) =>
+      Promise.resolve({
+        data:
+          url === "/api/resumes/base"
+            ? { version: 1, content }
+            : url === "/api/resumes"
+              ? [saved]
+              : url.includes("/proposals")
+                ? []
+                : { title: "Backend", company: "Company" },
+      }),
+    );
+    (apiClient.post as jest.Mock).mockImplementation((url: string) =>
+      Promise.resolve({
+        data:
+          url === "/api/resume/generate"
+            ? proposal
+            : { ...saved, version: 3, content: proposal.content },
+      }),
+    );
+    render(<ResumeStudio />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("خلاصه حرفه‌ای")).toHaveValue(
+        "Saved manual edit",
+      ),
+    );
+    fireEvent.change(screen.getByLabelText("خلاصه حرفه‌ای"), {
+      target: { value: "Unsaved manual edit" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "نسخه مخصوص آگهی" }));
+    expect(screen.getByLabelText("خلاصه حرفه‌ای")).toHaveValue(
+      "Unsaved manual edit",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "سفارشی‌سازی برای شغل منتخب" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "پذیرش پیشنهاد و ساخت نسخه مخصوص آگهی",
+        }),
+      ).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("خلاصه حرفه‌ای")).toHaveValue(
+      "Unsaved manual edit",
+    );
+    expect(apiClient.put).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "رزومه پایه" }));
+    expect(screen.getByLabelText("خلاصه حرفه‌ای")).toHaveValue("Saved base");
+    fireEvent.change(screen.getByLabelText("خلاصه حرفه‌ای"), {
+      target: { value: "Unsaved base" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "رزومه پایه" }));
+    expect(screen.getByLabelText("خلاصه حرفه‌ای")).toHaveValue("Unsaved base");
+    expect(
+      screen.getByRole("button", { name: "سفارشی‌سازی برای شغل منتخب" }),
+    ).toBeDisabled();
+    (apiClient.put as jest.Mock).mockResolvedValue({
+      data: { version: 2, content: { ...content, summary: "Unsaved base" } },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره رزومه پایه" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "نسخه مخصوص آگهی" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "نسخه مخصوص آگهی" }));
+    expect(screen.getByLabelText("خلاصه حرفه‌ای")).toHaveValue(
+      "Unsaved manual edit",
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "پذیرش پیشنهاد و ساخت نسخه مخصوص آگهی",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("خلاصه حرفه‌ای")).toHaveValue(
+        "Real project",
+      ),
+    );
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/api/resumes/proposals/proposal-id/accept",
+    );
   });
   beforeEach(() => {
     jest.clearAllMocks();
@@ -85,9 +197,20 @@ describe("Resume studio truthfulness and preview", () => {
     mockAuthenticated = true;
     (apiClient.get as jest.Mock).mockImplementation((url: string) =>
       Promise.resolve({
-        data: url.endsWith("/skills")
-          ? []
-          : { title: "Backend Developer", bio: "Actual biography" },
+        data:
+          url === "/api/resumes"
+            ? []
+            : {
+                version: 0,
+                content: {
+                  name: "Actual User",
+                  email: "actual@example.test",
+                  title: "Backend Developer",
+                  summary: "Actual biography",
+                  highlights: [],
+                  skills_to_emphasize: [],
+                },
+              },
       }),
     );
     render(<ResumeStudio />);
@@ -126,6 +249,7 @@ describe("Resume studio truthfulness and preview", () => {
   });
   it("restores backend resumes and saves explicit edits against the resume id", async () => {
     mockAuthenticated = true;
+    window.history.replaceState({}, "", "/resume?job=job-id");
     const saved = {
       id: "resume-id",
       jobId: "job-id",
@@ -144,9 +268,14 @@ describe("Resume studio truthfulness and preview", () => {
         data:
           url === "/api/resumes"
             ? [saved]
-            : url.endsWith("/skills")
+            : url.includes("/proposals")
               ? []
-              : { title: "Backend", bio: "Profile bio" },
+              : url === "/api/resumes/base"
+                ? {
+                    version: 1,
+                    content: { ...saved.content, summary: "Base summary" },
+                  }
+                : { title: "Backend", company: "Target company" },
       }),
     );
     (apiClient.put as jest.Mock).mockResolvedValue({ data: saved });

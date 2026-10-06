@@ -49,7 +49,7 @@ describe("Workspace routing", () => {
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(mockReplace).not.toHaveBeenCalled();
     expect(
-      screen.queryByRole("link", { name: "شروع گفتگو", exact: true }),
+      screen.queryByRole("link", { name: "شروع گفتگو" }),
     ).not.toBeInTheDocument();
   });
   it("preserves the logout destination when auth changes on a private page", () => {
@@ -58,9 +58,7 @@ describe("Workspace routing", () => {
         <p>Workspace</p>
       </PathlyShell>,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "خروج از حساب", exact: true }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "خروج از حساب" }));
     view.rerender(
       <PathlyShell>
         <p>Workspace</p>

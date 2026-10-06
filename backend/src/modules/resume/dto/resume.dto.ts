@@ -5,6 +5,8 @@ import {
   ArrayMaxSize,
   MaxLength,
   IsOptional,
+  IsInt,
+  Min,
 } from "class-validator";
 
 export class GenerateResumeDto {
@@ -24,4 +26,8 @@ export class UpdateResumeDto {
   @IsString({ each: true })
   @MaxLength(100, { each: true })
   declare skills_to_emphasize: string[];
+}
+
+export class UpdateBaseResumeDto extends UpdateResumeDto {
+  @IsInt() @Min(0) declare version: number;
 }
