@@ -24,6 +24,7 @@ import {
 } from "../domain/job-normalizer";
 import { NineRouterClient } from "./nine-router.client";
 import { SourceValidator } from "./source-validator";
+import { emptySourceMetrics } from "../domain/adaptive-discovery";
 
 export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
   private readonly logger = new Logger(NineRouterJobDiscoveryProvider.name);
@@ -54,6 +55,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                 ? "EXTRACTION_FAILED"
                 : "FETCH_OR_VALIDATION_FAILED";
     report.error = code;
+    if (report.metrics && /TIMEOUT/.test(code)) report.metrics.timeouts++;
     let page: string | undefined;
     if (url) {
       try {
@@ -112,13 +114,38 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
           seenUrls: new Set<string>(),
         };
         const query = queryFor(source, intent, options?.queryTitles),
+          metrics = emptySourceMetrics(),
           report: SourceReport = {
             source,
             query,
             found: 0,
             accepted: 0,
             rejected: 0,
+            metrics,
           };
+        const observed = () => progress?.sourceObserved?.(report);
+        const timed = async <T>(
+          key: "searchMs" | "validationMs" | "fetchMs" | "aiMs",
+          operation: () => Promise<T>,
+        ) => {
+          const started = Date.now();
+          try {
+            return await operation();
+          } finally {
+            metrics[key] += Date.now() - started;
+            observed();
+          }
+        };
+        const ceiling = Math.max(
+          1,
+          Math.min(
+            MAX_SOURCE_FETCHES,
+            Math.floor(options?.fetchCeiling ?? MAX_SOURCE_FETCHES),
+          ),
+        );
+        const canFetch = () =>
+          budget.remainingFetches > 0 &&
+          MAX_SOURCE_FETCHES - budget.remainingFetches < ceiling;
         reports.push(report);
         const stages = new Set<string>();
         const phase = async (stage: "fetch" | "extract" | "filter") => {
@@ -128,21 +155,47 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
           }
         };
         await progress?.sourceStarted(source);
-        if (budget.remainingFetches <= 0 || signal.aborted) {
+        if (!canFetch() || signal.aborted) {
           if (signal.aborted) report.error = "TIMEOUT";
           await progress?.sourceCompleted({ ...report });
           return;
         }
         const searchStarted = Date.now();
         try {
-          const urls = [
-            ...new Set(await this.client.search(query, source, signal)),
-          ].slice(0, 10);
-          report.found = urls.length;
-          const queue = [...urls],
+          const queue = budget.pendingUrls ?? (budget.pendingUrls = []),
             seen = budget.seenUrls;
+          const maxResults = Math.max(
+            1,
+            Math.min(10, Math.floor(options?.maxResults ?? 10)),
+          );
+          if (budget.query !== query) {
+            budget.query = query;
+            budget.searchedLimit = 0;
+            budget.searchExhausted = false;
+          }
+          if (
+            (budget.searchedLimit ?? 0) < maxResults &&
+            !budget.searchExhausted &&
+            queue.length <
+              ceiling - (MAX_SOURCE_FETCHES - budget.remainingFetches)
+          ) {
+            metrics.searchCalls++;
+            observed();
+            const urls = [
+              ...new Set(
+                await timed("searchMs", () =>
+                  this.client.search(query, source, signal, maxResults),
+                ),
+              ),
+            ].slice(0, maxResults);
+            budget.searchedLimit = maxResults;
+            budget.searchExhausted = urls.length < maxResults;
+            report.found = urls.length;
+            queue.push(...urls.filter((url) => !queue.includes(url)));
+            observed();
+          }
           let fetches = 0;
-          while (queue.length && budget.remainingFetches > 0) {
+          while (queue.length && canFetch()) {
             if (signal.aborted) {
               report.error = "TIMEOUT";
               break;
@@ -153,7 +206,11 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
               fetches === 0 && !queue.some(jobDetailUrl) ? 1 : 3;
             const batch = queue.splice(
               0,
-              Math.min(batchSize, budget.remainingFetches),
+              Math.min(
+                batchSize,
+                budget.remainingFetches,
+                ceiling - (MAX_SOURCE_FETCHES - budget.remainingFetches),
+              ),
             );
             await Promise.all(
               batch.map(async (url) => {
@@ -166,12 +223,18 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                   return;
                 }
                 const identity = canonicalUrl(url);
-                if (seen.has(identity)) return;
+                if (seen.has(identity)) {
+                  metrics.duplicates++;
+                  observed();
+                  return;
+                }
                 seen.add(identity);
                 try {
                   let resolved: string;
                   try {
-                    resolved = await this.validator.resolveSearch(url, signal);
+                    resolved = await timed("validationMs", () =>
+                      this.validator.resolveSearch(url, signal),
+                    );
                   } catch (error) {
                     // A verified remote provider can resolve a public Google bridge
                     // which rejects direct requests, but must return final_url.
@@ -193,12 +256,20 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                   )
                     return;
                   seen.add(resolvedIdentity);
-                  if (budget.remainingFetches <= 0) return;
+                  if (!canFetch()) return;
                   budget.remainingFetches--;
                   fetches++;
                   stage = "fetch";
                   await phase("fetch");
-                  const page = await this.client.fetch(resolved, signal);
+                  if (signal.aborted) {
+                    budget.remainingFetches++;
+                    return;
+                  }
+                  metrics.urlsFetched++;
+                  observed();
+                  const page = await timed("fetchMs", () =>
+                    this.client.fetch(resolved, signal),
+                  );
                   if (signal.aborted) return;
                   if (
                     this.validator.grounding(resolved) &&
@@ -210,7 +281,9 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                     return;
                   }
                   stage = "validate";
-                  await this.validator.validate(page.url, signal);
+                  await timed("validationMs", () =>
+                    this.validator.validate(page.url, signal),
+                  );
                   const finalIdentity = canonicalUrl(page.url);
                   if (
                     finalIdentity !== resolvedIdentity &&
@@ -272,7 +345,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                       queue.length,
                       ...[...new Set([...details, ...queue])].slice(
                         0,
-                        remaining,
+                        Math.max(0, remaining),
                       ),
                     );
                     report.rejected++;
@@ -284,24 +357,37 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                   }
                   stage = "extract";
                   await phase("extract");
-                  const job =
-                    normalizeJob(page.content, canonicalUrl(page.url)) ??
-                    (await this.extractor?.extract(
-                      page.content,
-                      canonicalUrl(page.url),
-                      signal,
-                    ));
+                  if (signal.aborted) return;
+                  const parseStarted = Date.now();
+                  let job = normalizeJob(page.content, canonicalUrl(page.url));
+                  metrics.parseMs += Date.now() - parseStarted;
+                  if (!job && this.extractor && !signal.aborted) {
+                    metrics.aiCalls++;
+                    observed();
+                    job = await timed("aiMs", () =>
+                      this.extractor!.extract(
+                        page.content,
+                        canonicalUrl(page.url),
+                        signal,
+                      ),
+                    );
+                  }
                   if (!job) {
                     throw new DiscoveryError("EXTRACTION_NO_POSTING", 502);
                   }
                   if (signal.aborted) return;
                   await phase("filter");
+                  if (signal.aborted) return;
                   jobs.push(job);
+                  metrics.jobsExtracted++;
                   report.evaluated = (report.evaluated ?? 0) + 1;
+                  observed();
                   if (!progress || (await progress.jobCandidate(job)))
                     report.accepted++;
                   else report.rejected++;
+                  observed();
                 } catch (error) {
+                  if (signal.aborted) return;
                   report.rejected++;
                   this.failure(
                     report,
@@ -311,12 +397,14 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                     signal,
                     diagnosticUrl,
                   );
+                  observed();
                 }
               }),
             );
           }
         } catch (error) {
-          this.failure(report, error, "search", searchStarted, signal);
+          if (!signal.aborted)
+            this.failure(report, error, "search", searchStarted, signal);
         }
         await progress?.sourceCompleted({ ...report });
       }),

@@ -1,5 +1,25 @@
 # Job discovery latency and incomplete results
 
+## Adaptive discovery first delivery — 2026-10-07
+
+The current backend now starts the first two configured sources at a cumulative
+three-fetch ceiling, expands remaining sources, then raises ceilings to five,
+eight and ten while retaining pending URLs and the ten-page lifetime budget.
+Core scheduling does not call the model planner. Confirmed unique accepted jobs
+cancel outstanding work immediately at the requested target; successful stopping
+does not become a timeout or partial result. Existing filtered/uncertain jobs,
+security/provenance checks and deadline preservation remain covered.
+
+Internal sourceReports carry stage timings and counters; public HTTP/SSE results
+omit those measurements. No database migration is needed. Both chat composers
+explain the default five-confirmed-job target and how to request ten jobs; live
+progress shows the actual target supplied by the server.
+The configured sixty-second deadline remains. See
+`docs/adaptive-discovery-delivery-fa.md` and
+`openspec/changes/jm-back-0006-adaptive-job-discovery/` for scope and verification.
+This delivery has not been deployed or benchmarked against real upstream sites.
+The all-source parallel descriptions below record earlier behavior.
+
 ## Live progress and public failure explanations — 2026-10-07
 
 Both authenticated and guest chat now show actual task progress: interpreting

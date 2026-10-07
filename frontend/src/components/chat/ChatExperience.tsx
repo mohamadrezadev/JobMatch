@@ -10,6 +10,7 @@ import { DiscoveryPanel } from "./DiscoveryPanel";
 import { useDiscoveryStore } from "@/stores/useDiscoveryStore";
 import { useChatRunStore } from "@/stores/useChatRunStore";
 import { RunActivity } from "./RunActivity";
+import { discoveryCountHint } from "@/lib/discovery-progress";
 import { runFinished } from "@/types/chat-run";
 import Link from "next/link";
 
@@ -385,6 +386,9 @@ function AuthenticatedChat() {
           />
         )}
       <div className="shrink-0 border-t border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/50">
+        <p className="mb-2 text-[10px] leading-5 text-slate-500 dark:text-slate-400">
+          {discoveryCountHint}
+        </p>
         <form onSubmit={submit} className="flex gap-2">
           <label htmlFor="chat-input" className="sr-only">
             پیام شما

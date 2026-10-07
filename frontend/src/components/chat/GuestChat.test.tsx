@@ -195,6 +195,10 @@ describe("Guest conversation", () => {
     (sendGuestMessage as jest.Mock).mockImplementationOnce(
       async (_message, receive) => {
         receive({
+          type: "agent.started",
+          data: { targetValidJobs: 10, searchMode: "adaptive" },
+        });
+        receive({
           type: "source.progress",
           data: { source: "jobvision.ir", stage: "extract" },
         });
@@ -253,6 +257,8 @@ describe("Guest conversation", () => {
     await waitFor(() => expect(send).toBeEnabled());
     fireEvent.click(send);
     await screen.findAllByText(/جاب‌ویژن: در حال استخراج اطلاعات/);
+    expect(screen.getByText("هدف جستجو: ۱۰ آگهی با شرایط تأییدشده")).toBeInTheDocument();
+    expect(screen.getByText(/هدف پیش‌فرض، ۵ آگهی/)).toBeInTheDocument();
     await act(async () => {
       finish();
     });
@@ -291,9 +297,7 @@ describe("Guest conversation", () => {
     await waitFor(() => expect(send).toBeEnabled());
     fireEvent.click(send);
     await screen.findByText("پاسخ ذخیره‌شده");
-    expect(
-      screen.getByRole("textbox", { name: "پیام شما" }),
-    ).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "پیام شما" })).toHaveValue("");
     expect(sendGuestMessage).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

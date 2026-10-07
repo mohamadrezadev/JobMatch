@@ -7,6 +7,8 @@ import {
 } from "../domain/discovery";
 
 export interface DiscoveryProgress {
+  // Internal snapshots only; never publish these as public source events.
+  sourceObserved?(report: SourceReport): void;
   sourceProgress?(
     source: string,
     stage: "fetch" | "extract" | "filter",
@@ -20,11 +22,17 @@ export const MAX_SOURCE_FETCHES = 10;
 export interface SourceDiscoveryBudget {
   remainingFetches: number;
   seenUrls: Set<string>;
+  pendingUrls?: string[];
+  query?: string;
+  searchedLimit?: number;
+  searchExhausted?: boolean;
 }
 export interface DiscoveryOptions {
   sources: string[];
   queryTitles?: string[];
   budgets?: Map<string, SourceDiscoveryBudget>;
+  fetchCeiling?: number;
+  maxResults?: number;
 }
 
 export abstract class JobDiscoveryProvider {

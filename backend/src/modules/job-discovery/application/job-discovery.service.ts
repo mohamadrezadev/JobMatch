@@ -17,6 +17,13 @@ export interface LiveDiscovery {
   contextVersion: number;
 }
 const publicSources = (sources: SourceReport[]) => sources.map(publicSource);
+// Keep the existing HTTP contract; measurements are stored internally only.
+const withoutMetrics = <T extends { sources: SourceReport[] }>(
+  result: T,
+): T => ({
+  ...result,
+  sources: result.sources.map(({ metrics: _metrics, ...source }) => source),
+});
 
 export class JobDiscoveryService {
   constructor(
@@ -28,8 +35,9 @@ export class JobDiscoveryService {
       new AgentPlannerService(),
     ),
   ) {}
-  latest(userId: string, conversationId: string) {
-    return this.repository.latest(userId, conversationId);
+  async latest(userId: string, conversationId: string) {
+    const result = await this.repository.latest(userId, conversationId);
+    return result ? withoutMetrics(result) : null;
   }
   async search(userId: string, conversationId: string, live?: LiveDiscovery) {
     const { intent, version, rankingExperienceLevel } =
@@ -50,14 +58,14 @@ export class JobDiscoveryService {
         sources: publicSources(run.sources),
         partial: run.status === "PARTIAL",
       });
-      return {
+      return withoutMetrics({
         runId: run.id,
         jobs: run.jobs,
         sources: run.sources,
         partial: run.status === "PARTIAL",
         cached: true,
         ...(!run.jobs.length ? { code: "NO_JOBS_FOUND" as const } : {}),
-      };
+      });
     }
     const controller = new AbortController();
     const deadline = Date.now() + this.totalTimeout;
@@ -135,7 +143,7 @@ export class JobDiscoveryService {
         ...completed,
         sources: publicSources(completed.sources),
       });
-      return completed;
+      return withoutMetrics(completed);
     } catch (error) {
       controller.abort();
       const failure =

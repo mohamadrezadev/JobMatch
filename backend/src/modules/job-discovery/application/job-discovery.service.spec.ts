@@ -1,6 +1,7 @@
 import { JobDiscoveryService } from "./job-discovery.service";
 import { DiscoveryRepository, JobDiscoveryProvider } from "./discovery.ports";
 import { DiscoveryError } from "../domain/discovery";
+import { emptySourceMetrics } from "../domain/adaptive-discovery";
 describe("Discovery use case", () => {
   let repository: jest.Mocked<DiscoveryRepository>,
     provider: jest.Mocked<JobDiscoveryProvider>,
@@ -27,6 +28,18 @@ describe("Discovery use case", () => {
       sources: [],
     });
     service = new JobDiscoveryService(repository, provider);
+    repository.complete.mockImplementation(
+      async (runId, jobs, sources, partial) => ({
+        runId,
+        jobs: jobs.map((job, index) => ({
+          ...job,
+          id: String(index),
+          warnings: [],
+        })),
+        sources,
+        partial,
+      }),
+    );
   });
   it("checks ownership before starting or calling the provider", async () => {
     repository.context.mockRejectedValue(
@@ -37,6 +50,50 @@ describe("Discovery use case", () => {
     );
     expect(repository.begin).not.toHaveBeenCalled();
     expect(provider.discover).not.toHaveBeenCalled();
+  });
+  it("retains internal source metrics in persistence and strips them from fresh, cached and restored HTTP results", async () => {
+    const internalSource = {
+      source: "jobinja.ir",
+      query: "q",
+      found: 0,
+      accepted: 0,
+      rejected: 0,
+      metrics: emptySourceMetrics(),
+    };
+    const publicResult = {
+      runId: "run",
+      jobs: [],
+      partial: false,
+      sources: [internalSource],
+    };
+    provider.discover.mockImplementation(
+      async (_intent, _signal, _progress, options) => ({
+        jobs: [],
+        sources: options!.sources.map((source) => ({
+          ...internalSource,
+          source,
+        })),
+      }),
+    );
+    repository.complete.mockResolvedValue(publicResult);
+    expect(
+      (await service.search("owner", "conversation")).sources[0],
+    ).not.toHaveProperty("metrics");
+    expect(repository.complete.mock.calls[0][2][0]).toHaveProperty("metrics");
+    repository.begin.mockResolvedValue({
+      id: "run",
+      status: "COMPLETED",
+      jobs: [],
+      sources: [internalSource],
+      cached: true,
+    });
+    expect(
+      (await service.search("owner", "conversation")).sources[0],
+    ).not.toHaveProperty("metrics");
+    repository.latest.mockResolvedValue(publicResult);
+    expect(
+      (await service.latest("owner", "conversation"))!.sources[0],
+    ).not.toHaveProperty("metrics");
   });
   it("returns a cached result without another provider request", async () => {
     repository.begin.mockResolvedValue({

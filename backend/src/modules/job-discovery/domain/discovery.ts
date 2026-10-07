@@ -32,6 +32,7 @@ export interface DiscoveryJob extends DiscoveredJob {
   warnings: string[];
 }
 export interface SourceReport {
+  metrics?: import("./adaptive-discovery").SourceMetrics;
   source: string;
   query: string;
   found: number;

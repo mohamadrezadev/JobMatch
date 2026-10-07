@@ -31,6 +31,10 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
   let release: (() => void) | undefined,
     blocked = false,
     unavailable = false;
+  const unblockProvider = () => {
+    blocked = false;
+    release?.();
+  };
   const marker = "Live run fixture " + randomUUID(),
     secret = "live-runs-integration-only";
   const jwt = new JwtService({ secret });
@@ -306,7 +310,8 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
     const searches = actions.filter(
       (action) => action === "SEARCH_SOURCES",
     ).length;
-    expect(searches).toBeLessThanOrEqual(4);
+    // Five original-query waves and at most three equivalent-query waves.
+    expect(searches).toBeLessThanOrEqual(8);
     expect(events.filter((e) => e.type === "agent.observation")).toHaveLength(
       searches,
     );
@@ -354,6 +359,54 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
         })
       ).status,
     ).toBe(400);
+  });
+  it("commits and completes the requested one-job goal while provider work is still blocked", async () => {
+    blocked = true;
+    release = undefined;
+    const created = await create({
+      requestId: randomUUID(),
+      message: "۱ تا کار بک‌اند Node دورکار بالای ۲۰ میلیون پیدا کن",
+    });
+    expect(created.status).toBe(202);
+    const { runId } = (await json(created)).data;
+    try {
+      const events = await consume(runId);
+      const accepted = events.filter((event) => event.type === "job.accepted");
+      expect(accepted).toHaveLength(1);
+      expect(
+        await prisma.job.findUnique({ where: { id: accepted[0].data.job.id } }),
+      ).not.toBeNull();
+      expect(
+        events.find((event) => event.type === "agent.completed"),
+      ).toMatchObject({
+        data: {
+          reasonCode: "ENOUGH_RESULTS",
+          validJobCount: 1,
+          partial: false,
+        },
+      });
+      expect(events.at(-1)).toMatchObject({
+        type: "run.completed",
+        data: { partial: false },
+      });
+      expect(
+        events.filter(
+          (event) =>
+            event.type === "agent.decision" &&
+            event.data.action === "SEARCH_SOURCES",
+        ),
+      ).toHaveLength(1);
+      expect(
+        (await prisma.chatRun.findUniqueOrThrow({ where: { id: runId } }))
+          .status,
+      ).toBe("COMPLETED");
+      const count = await prisma.chatRunEvent.count({ where: { runId } });
+      unblockProvider();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(await prisma.chatRunEvent.count({ where: { runId } })).toBe(count);
+    } finally {
+      unblockProvider();
+    }
   });
   it("retries with a new run while preserving the committed message pair", async () => {
     unavailable = true;

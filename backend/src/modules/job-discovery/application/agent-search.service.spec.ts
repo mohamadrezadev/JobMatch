@@ -7,6 +7,7 @@ import {
   DiscoveryError,
 } from "../domain/discovery";
 import { JobDiscoveryService } from "./job-discovery.service";
+import { emptySourceMetrics } from "../domain/adaptive-discovery";
 
 const goal = { targetRoles: ["Backend Developer"], minimumSalary: 60000000 };
 const job = (
@@ -79,6 +80,10 @@ it("searches HR equivalents separately and stops after enough confirmed jobs", a
   expect(result.jobs).toEqual([hr]);
   expect(discover.mock.calls.map((call) => call[3].queryTitles)).toEqual([
     ["کارشناس منابع انسانی"],
+    ["کارشناس منابع انسانی"],
+    ["کارشناس منابع انسانی"],
+    ["کارشناس منابع انسانی"],
+    ["کارشناس منابع انسانی"],
     ["HR Specialist"],
   ]);
   for (const call of discover.mock.calls) expect(call[0]).toEqual(intent);
@@ -93,7 +98,12 @@ it("does not retry unknown occupations or search exhausted source page budgets",
     { targetRoles: ["Medical Device Technician"] },
     signal(),
   );
-  expect(discover).toHaveBeenCalledTimes(1);
+  expect(discover).toHaveBeenCalledTimes(5);
+  expect(
+    new Set(
+      discover.mock.calls.map((call) => JSON.stringify(call[3].queryTitles)),
+    ).size,
+  ).toBe(1);
   discover.mockClear();
   discover.mockImplementation(async (_goal, _signal, _progress, options) => {
     for (const source of options.sources)
@@ -104,16 +114,16 @@ it("does not retry unknown occupations or search exhausted source page budgets",
     goal,
     signal(),
   );
-  expect(discover).toHaveBeenCalledTimes(1);
+  expect(discover).toHaveBeenCalledTimes(2);
 });
-it("shares budgets and caps the total at four rounds and sixteen source searches", async () => {
+it("shares budgets across five initial waves and at most four distinct queries", async () => {
   await new AgentSearchService(provider, new AgentPlannerService()).search(
     { targetRoles: ["C#"] },
     signal(),
   );
-  expect(discover).toHaveBeenCalledTimes(4);
+  expect(discover).toHaveBeenCalledTimes(8);
   expect(discover.mock.calls.flatMap((call) => call[3].sources)).toHaveLength(
-    16,
+    28,
   );
   expect(
     new Set(
@@ -197,7 +207,7 @@ it("preserves first-round accepted jobs when a later attempt hangs", async () =>
     expect.objectContaining({ reasonCode: "TIME_LIMIT" }),
   );
 });
-it("enforces the shared deadline even when a planner ignores cancellation", async () => {
+it("never waits for the model planner during deterministic scheduling", async () => {
   const planner = {
     decide: jest.fn(() => new Promise(() => undefined)),
   } as unknown as AgentPlannerService;
@@ -208,8 +218,9 @@ it("enforces the shared deadline even when a planner ignores cancellation", asyn
     publish,
     Date.now() + 30,
   );
-  expect(discover).not.toHaveBeenCalled();
-  expect(result.partial).toBe(true);
+  expect(planner.decide).not.toHaveBeenCalled();
+  expect(discover).toHaveBeenCalled();
+  expect(result.partial).toBe(false);
 });
 it("does not start work when cancellation or deadline has already occurred", async () => {
   const controller = new AbortController();
@@ -262,10 +273,8 @@ it("uses the requested ten jobs as the goal and combines concurrent sources", as
   );
   expect(discover).toHaveBeenCalledTimes(1);
   expect(result.jobs).toHaveLength(10);
-  expect(decide.mock.calls[0][0]).toMatchObject({
-    goal: { requestedCount: 10 },
-    remainingSources: AGENT_SOURCES,
-  });
+  expect(decide).not.toHaveBeenCalled();
+  expect(discover.mock.calls[0][0].requestedCount).toBe(10);
   expect(publish).toHaveBeenCalledWith(
     "agent.started",
     expect.objectContaining({ targetValidJobs: 10 }),
@@ -275,7 +284,7 @@ it("uses the requested ten jobs as the goal and combines concurrent sources", as
     expect.objectContaining({ reasonCode: "ENOUGH_RESULTS" }),
   );
 });
-it("searches every active source even when one source supplies enough jobs", async () => {
+it("does not schedule later sources when the initial wave supplies enough jobs", async () => {
   discover.mockImplementationOnce(
     async (_goal, _signal, _progress, options) => ({
       jobs: [1, 2, 3, 4, 5].map((id) => job(id)),
@@ -290,7 +299,8 @@ it("searches every active source even when one source supplies enough jobs", asy
   expect(result.partial).toBe(false);
   expect(discover).toHaveBeenCalledTimes(1);
   expect(discover.mock.calls[0][3]).toMatchObject({
-    sources: AGENT_SOURCES,
+    sources: AGENT_SOURCES.slice(0, 2),
+    fetchCeiling: 3,
     queryTitles: goal.targetRoles,
   });
   expect(publish).toHaveBeenCalledWith(
@@ -307,7 +317,7 @@ it("keeps uncertain jobs visible and continues until confirmed results or source
     provider,
     new AgentPlannerService(),
   ).search(goal, signal(), undefined, publish);
-  expect(discover).toHaveBeenCalledTimes(3);
+  expect(discover).toHaveBeenCalledTimes(7);
   expect(result.jobs).toHaveLength(5);
   expect(publish).toHaveBeenCalledWith(
     "agent.completed",
@@ -370,7 +380,7 @@ it("preserves a completed source when another concurrent source exceeds the dead
   ).toEqual({ ...report("jobinja.ir"), found: 1, accepted: 1 });
   expect(
     result.sources.filter((source) => source.error === "TIMEOUT"),
-  ).toHaveLength(3);
+  ).toHaveLength(1);
   expect(result.partial).toBe(true);
 });
 it("counts duplicate and filtered jobs only once after applying user constraints", async () => {
@@ -392,7 +402,7 @@ it("counts duplicate and filtered jobs only once after applying user constraints
     expect.objectContaining({ validJobCount: 1 }),
   );
 });
-it("enforces all sources and immutable user goal even when a planner chooses just one", async () => {
+it("keeps the goal immutable and bypasses an injected model planner", async () => {
   const planner = {
     decide: jest.fn(async (input) => {
       input.goal.minimumSalary = 1;
@@ -404,12 +414,10 @@ it("enforces all sources and immutable user goal even when a planner chooses jus
     }),
   } as unknown as AgentPlannerService;
   await new AgentSearchService(provider, planner).search(goal, signal());
-  expect(discover).toHaveBeenCalledTimes(3);
+  expect(discover).toHaveBeenCalledTimes(7);
+  expect(planner.decide).not.toHaveBeenCalled();
   for (const call of discover.mock.calls)
-    expect(call[3].sources).toEqual(AGENT_SOURCES);
-  expect(discover.mock.calls.map((call) => call[0].minimumSalary)).toEqual([
-    60000000, 60000000, 60000000,
-  ]);
+    expect(call[0].minimumSalary).toBe(60000000);
   expect(goal.minimumSalary).toBe(60000000);
 });
 it("observes one persistently failed source while retaining results from other sources", async () => {
@@ -471,7 +479,7 @@ it("uses one discovery run and skips the planner on cache hits", async () => {
   await service.search("owner", "conversation");
   expect(repository.begin).toHaveBeenCalledTimes(1);
   expect(repository.complete).toHaveBeenCalledTimes(1);
-  expect(discover).toHaveBeenCalledTimes(3);
+  expect(discover).toHaveBeenCalledTimes(7);
   repository.begin.mockResolvedValueOnce({
     id: "run",
     status: "COMPLETED",
@@ -510,4 +518,139 @@ it("fails when every source fails and no usable jobs exist", async () => {
       ),
     ),
   );
+});
+
+it("cancels a hung wave immediately after the persisted confirmed target and ignores late callbacks", async () => {
+  let tracked: Parameters<JobDiscoveryProvider["discover"]>[2];
+  let batchSignal: AbortSignal | undefined;
+  const accepted = jest.fn(async () => true);
+  discover.mockImplementation(async (_goal, abort, progress) => {
+    tracked = progress;
+    batchSignal = abort;
+    await Promise.all([
+      progress.jobCandidate(job(1)),
+      progress.jobCandidate(job(2)),
+    ]);
+    return new Promise(() => undefined);
+  });
+  const result = await new AgentSearchService(
+    provider,
+    new AgentPlannerService(),
+  ).search(
+    { ...goal, requestedCount: 2 },
+    signal(),
+    {
+      sourceStarted: jest.fn(),
+      sourceCompleted: jest.fn(),
+      jobCandidate: accepted,
+    },
+    publish,
+    Date.now() + 1000,
+  );
+  expect(batchSignal!.aborted).toBe(true);
+  expect(result.jobs).toHaveLength(2);
+  expect(result.partial).toBe(false);
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(result.sources.some((source) => source.error === "TIMEOUT")).toBe(
+    false,
+  );
+  expect(await tracked!.jobCandidate(job(3))).toBe(false);
+  expect(accepted).toHaveBeenCalledTimes(2);
+  expect(publish).toHaveBeenCalledWith(
+    "agent.completed",
+    expect.objectContaining({ reasonCode: "ENOUGH_RESULTS" }),
+  );
+});
+
+it("does not count uncertain, duplicate, filtered or declined streamed jobs toward stopping", async () => {
+  const accepted = jest.fn(
+    async (candidate: DiscoveredJob) => candidate.company !== "Company 4",
+  );
+  discover.mockImplementationOnce(async (_goal, _signal, progress, options) => {
+    expect(await progress.jobCandidate(job(1, options.sources[0], false))).toBe(
+      true,
+    );
+    expect(await progress.jobCandidate(job(1, options.sources[0], false))).toBe(
+      false,
+    );
+    expect(await progress.jobCandidate({ ...job(2), salaryMin: 1 })).toBe(
+      false,
+    );
+    expect(await progress.jobCandidate(job(4))).toBe(false);
+    expect(_signal.aborted).toBe(false);
+    await progress.jobCandidate(job(3));
+    return new Promise(() => undefined);
+  });
+  const result = await new AgentSearchService(
+    provider,
+    new AgentPlannerService(),
+  ).search(
+    { ...goal, requestedCount: 1 },
+    signal(),
+    {
+      sourceStarted: jest.fn(),
+      sourceCompleted: jest.fn(),
+      jobCandidate: accepted,
+    },
+    publish,
+  );
+  expect(result.jobs.map((candidate) => candidate.company)).toEqual([
+    "Company 1",
+    "Company 3",
+  ]);
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(result.partial).toBe(false);
+});
+
+it("records safe cumulative source metrics without exposing them in planner events", async () => {
+  const summary = jest.fn();
+  discover.mockImplementation(async (_goal, _signal, _progress, options) => ({
+    jobs: [],
+    sources: options.sources.map((source: string) => ({
+      ...report(source),
+      metrics: { ...emptySourceMetrics(), searchCalls: 1, searchMs: 7 },
+    })),
+  }));
+  await new AgentSearchService(
+    provider,
+    new AgentPlannerService(),
+    ["jobinja.ir"],
+    summary,
+  ).search(
+    { targetRoles: ["Unknown Occupation"] },
+    signal(),
+    undefined,
+    publish,
+  );
+  expect(summary).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sources: [
+        expect.objectContaining({
+          metrics: expect.objectContaining({ searchCalls: 4, searchMs: 28 }),
+        }),
+      ],
+    }),
+  );
+  expect(JSON.stringify(summary.mock.calls)).not.toMatch(
+    /PRIVATE_QUERY|PRIVATE_PAGE_TEXT/,
+  );
+  expect(JSON.stringify(publish.mock.calls)).not.toContain("searchMs");
+});
+
+it("uses the configured source preference and cumulative wave ceilings", async () => {
+  await new AgentSearchService(
+    provider,
+    new AgentPlannerService(),
+    [...AGENT_SOURCES].reverse(),
+  ).search({ targetRoles: ["Unknown Occupation"] }, signal());
+  expect(discover.mock.calls.map((call) => call[3].sources)).toEqual([
+    ["e-estekhdam.com", "irantalent.com"],
+    ["jobvision.ir", "jobinja.ir"],
+    [...AGENT_SOURCES].reverse(),
+    [...AGENT_SOURCES].reverse(),
+    [...AGENT_SOURCES].reverse(),
+  ]);
+  expect(discover.mock.calls.map((call) => call[3].fetchCeiling)).toEqual([
+    3, 3, 5, 8, 10,
+  ]);
 });

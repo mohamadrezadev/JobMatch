@@ -185,16 +185,15 @@ it.each([false, true])(
     expect(order).toEqual([
       "understand",
       "save-goal",
-      "plan",
       "search",
-      "plan",
       "search",
-      "plan",
       "search",
-      "plan",
+      "search",
+      "search",
+      "search",
       "search",
     ]);
-    expect(provider.discover).toHaveBeenCalledTimes(4);
+    expect(provider.discover).toHaveBeenCalledTimes(7);
     expect(row.status).toBe(partial ? "PARTIAL" : "COMPLETED");
     expect(prisma.conversationMessage.update).toHaveBeenCalledWith(
       expect.objectContaining({

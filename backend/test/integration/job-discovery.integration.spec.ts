@@ -250,6 +250,26 @@ databaseSuite("Job discovery HTTP + mock 9Router + real PostgreSQL", () => {
     });
     expect(data.jobs[0].sourceUrl).not.toContain("utm_source");
     expect(fetched).toHaveLength(4);
+    expect(
+      data.sources.every(
+        (source) => !Object.prototype.hasOwnProperty.call(source, "metrics"),
+      ),
+    ).toBe(true);
+    const persisted = await prisma.jobDiscoveryRun.findUniqueOrThrow({
+      where: { id: data.runId },
+    });
+    const measurements = persisted.sourceReports as unknown as {
+      metrics: { urlsFetched: number; aiCalls: number };
+    }[];
+    expect(
+      measurements.reduce(
+        (total, source) => total + source.metrics.urlsFetched,
+        0,
+      ),
+    ).toBe(fetched.length);
+    expect(measurements.every((source) => source.metrics.aiCalls === 0)).toBe(
+      true,
+    );
     expect(fetched.every((url) => !url.includes("linkedin"))).toBe(true);
     expect(await prisma.job.count({ where: { company: marker } })).toBe(1);
     // The agent can search multiple title variants before the result is cached.

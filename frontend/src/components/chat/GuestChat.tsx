@@ -11,6 +11,8 @@ import {
   progressLabel,
   stageLabels,
   sourceNames,
+  discoveryCountHint,
+  discoveryTargetLabel,
 } from "@/lib/discovery-progress";
 import { SourceProblems } from "./SourceProblems";
 import type { DiscoveryIssue } from "@/types/discovery";
@@ -34,6 +36,7 @@ export function GuestChat() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activity, setActivity] = useState<GuestProgressEvent | undefined>();
+  const [targetLabel, setTargetLabel] = useState("");
   const [sources, setSources] = useState<
     Array<{
       source: string;
@@ -100,6 +103,7 @@ export function GuestChat() {
     setPending(true);
     setError("");
     setActivity({ type: "context.processing", data: {} });
+    setTargetLabel("");
     setSources([]);
     const connection = new AbortController();
     request.current = connection;
@@ -109,6 +113,8 @@ export function GuestChat() {
         (event) => {
           if (connection.signal.aborted) return;
           setActivity(event);
+          if (event.type === "agent.started")
+            setTargetLabel(discoveryTargetLabel(event.data.targetValidJobs));
           if (
             event.type.startsWith("source.") &&
             typeof event.data.source === "string"
@@ -335,6 +341,9 @@ export function GuestChat() {
           >
             {progressLabel(activity)}
           </p>
+          {targetLabel && activity?.type !== "agent.started" && (
+            <p>{targetLabel}</p>
+          )}
           {sources.map((source) => (
             <p key={source.source}>
               {sourceNames[source.source] ?? source.source}:{" "}
@@ -423,6 +432,9 @@ export function GuestChat() {
         onSubmit={submit}
         className="border-t border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/30"
       >
+        <p className="mb-2 text-[10px] leading-5 text-slate-500 dark:text-slate-400">
+          {discoveryCountHint}
+        </p>
         <div className="flex gap-2">
           <label htmlFor="guest-chat-input" className="sr-only">
             پیام شما

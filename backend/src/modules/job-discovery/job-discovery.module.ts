@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import OpenAI from "openai";
 import { PrismaModule } from "../../prisma/prisma.module";
@@ -105,6 +105,8 @@ import { AgentSearchService } from "./application/agent-search.service";
             .split(",")
             .map((source) => source.trim().toLowerCase())
             .filter((source) => AGENT_SOURCES.includes(source)),
+          (summary) =>
+            new Logger("DiscoveryPerformance").log(JSON.stringify(summary)),
         ),
     },
     {

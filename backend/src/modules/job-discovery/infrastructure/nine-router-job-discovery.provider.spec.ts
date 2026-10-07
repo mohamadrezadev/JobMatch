@@ -583,6 +583,98 @@ describe("Search/fetch boundary", () => {
     expect(client.fetch).toHaveBeenCalledTimes(10);
     expect(result.jobs).toHaveLength(9);
   });
+  it("retains listing detail queues through cumulative waves without re-searching or refetching", async () => {
+    client.search.mockResolvedValue(["https://jobinja.ir/jobs"]);
+    client.fetch.mockImplementation(async (url: string) => ({
+      url,
+      content: url.endsWith("/jobs") ? "Job list" : html,
+      links: url.endsWith("/jobs")
+        ? Array.from({ length: 15 }, (_, i) => `/jobs/${i}`)
+        : [],
+    }));
+    const budgets = new Map<string, SourceDiscoveryBudget>([
+      ["jobinja.ir", { remainingFetches: 10, seenUrls: new Set() }],
+    ]);
+    const provider = new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobinja.ir"],
+    );
+    const observed = jest.fn();
+    for (const ceiling of [3, 5, 8, 10]) {
+      const result = await provider.discover(
+        { targetRoles: ["Backend Developer"] },
+        signal,
+        {
+          sourceStarted: jest.fn(),
+          sourceCompleted: jest.fn(),
+          jobCandidate: jest.fn(async () => true),
+          sourceObserved: observed,
+        },
+        {
+          sources: ["jobinja.ir"],
+          budgets,
+          fetchCeiling: ceiling,
+          maxResults: ceiling,
+        },
+      );
+      expect(client.fetch).toHaveBeenCalledTimes(ceiling);
+      expect(result.sources[0].metrics!.aiCalls).toBe(0);
+      expect(result.sources[0].metrics!.urlsFetched).toBe(
+        ceiling === 3 ? 3 : ceiling === 5 ? 2 : ceiling === 8 ? 3 : 2,
+      );
+    }
+    expect(client.search).toHaveBeenCalledTimes(1);
+    expect(client.search.mock.calls[0][3]).toBe(3);
+    expect(new Set(client.fetch.mock.calls.map((call) => call[0])).size).toBe(
+      10,
+    );
+    expect(budgets.get("jobinja.ir")!.remainingFetches).toBe(0);
+    expect(observed).toHaveBeenCalled();
+  });
+  it("counts failed fetches against the initial three-page ceiling", async () => {
+    client.search.mockResolvedValue(
+      Array.from({ length: 10 }, (_, i) => `https://jobvision.ir/jobs/${i}`),
+    );
+    client.fetch.mockRejectedValue(new DiscoveryError("FETCH_TIMEOUT", 502));
+    const budgets = new Map<string, SourceDiscoveryBudget>([
+      ["jobvision.ir", { remainingFetches: 10, seenUrls: new Set() }],
+    ]);
+    const result = await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+    ).discover({ targetRoles: ["Backend Developer"] }, signal, undefined, {
+      sources: ["jobvision.ir"],
+      budgets,
+      fetchCeiling: 3,
+      maxResults: 3,
+    });
+    expect(client.fetch).toHaveBeenCalledTimes(3);
+    expect(budgets.get("jobvision.ir")!.remainingFetches).toBe(7);
+    expect(result.sources[0].metrics).toMatchObject({
+      urlsFetched: 3,
+      timeouts: 3,
+      jobsExtracted: 0,
+    });
+  });
+  it("does not start fetches after cancellation during a progress callback", async () => {
+    const controller = new AbortController();
+    client.search.mockResolvedValue(["https://jobvision.ir/jobs/1"]);
+    await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+    ).discover({ targetRoles: ["Backend Developer"] }, controller.signal, {
+      sourceStarted: jest.fn(),
+      sourceCompleted: jest.fn(),
+      jobCandidate: jest.fn(),
+      sourceProgress: async (_source, stage) => {
+        if (stage === "fetch") controller.abort();
+      },
+    });
+    expect(client.fetch).not.toHaveBeenCalled();
+  });
   it("visits role-related details even when search fills all ten slots with listings", async () => {
     client.search.mockResolvedValue(
       Array.from({ length: 10 }, (_, i) => `https://jobinja.ir/jobs?page=${i}`),

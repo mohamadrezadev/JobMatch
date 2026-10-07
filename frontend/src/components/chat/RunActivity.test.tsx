@@ -21,6 +21,36 @@ const view = (): ChatRunView => ({
   error: null,
 });
 beforeEach(() => useChatRunStore.getState().reset());
+it.each([5, 10])(
+  "keeps the server's %i-job target visible as source work progresses",
+  (count) => {
+    const run = view();
+    run.events = [
+      {
+        id: "start",
+        sequence: 1,
+        runId: "run",
+        timestamp: "now",
+        type: "agent.started",
+        data: { searchMode: "adaptive", targetValidJobs: count },
+      },
+      {
+        id: "source",
+        sequence: 2,
+        runId: "run",
+        timestamp: "now",
+        type: "source.started",
+        data: { source: "jobinja.ir" },
+      },
+    ];
+    render(<RunActivity run={run} />);
+    expect(
+      screen.getByText(
+        `هدف جستجو: ${count.toLocaleString("fa-IR")} آگهی با شرایط تأییدشده`,
+      ),
+    ).toBeInTheDocument();
+  },
+);
 it("shows source extraction progress and keeps categorized failures visible when collapsed", () => {
   const run = view();
   run.sources = [

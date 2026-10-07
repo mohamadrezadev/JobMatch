@@ -8,6 +8,7 @@ import {
   progressLabel,
   stageLabels,
   sourceNames,
+  discoveryTargetLabel,
 } from "@/lib/discovery-progress";
 import { SourceProblems } from "./SourceProblems";
 
@@ -107,14 +108,23 @@ export function RunActivity({ run }: { run: ChatRunView }) {
               const data = event.data;
               if (
                 event.type === "agent.started" &&
-                data.searchMode === "parallel" &&
-                Array.isArray(data.sources)
+                (discoveryTargetLabel(data.targetValidJobs) ||
+                  (data.searchMode === "parallel" &&
+                    Array.isArray(data.sources)))
               )
                 return (
-                  <p key={event.id}>
-                    ◌ جستجوی همزمان در{" "}
-                    {data.sources.length.toLocaleString("fa-IR")} منبع
-                  </p>
+                  <div key={event.id}>
+                    {discoveryTargetLabel(data.targetValidJobs) && (
+                      <p>{discoveryTargetLabel(data.targetValidJobs)}</p>
+                    )}
+                    {data.searchMode === "parallel" &&
+                      Array.isArray(data.sources) && (
+                        <p>
+                          ◌ جستجوی همزمان در{" "}
+                          {data.sources.length.toLocaleString("fa-IR")} منبع
+                        </p>
+                      )}
+                  </div>
                 );
               if (event.type === "agent.planning")
                 return (

@@ -66,7 +66,9 @@ export class NineRouterClient {
     query: string,
     source: string,
     signal: AbortSignal,
+    maxResults = 10,
   ): Promise<string[]> {
+    const limit = Math.max(1, Math.min(10, Math.floor(maxResults) || 10));
     const response = await this.http.post(
       "/v1/search",
       {
@@ -74,14 +76,14 @@ export class NineRouterClient {
         search_type: "web",
         query,
         domain_filter: [source],
-        max_results: 10,
+        max_results: limit,
       },
       { signal, timeout: this.config.searchTimeout },
     );
     if (!Array.isArray(response.data?.results))
       throw new DiscoveryError("PROVIDER_RESPONSE_INVALID", 502);
     return response.data.results
-      .slice(0, 10)
+      .slice(0, limit)
       .flatMap((row: unknown) =>
         row &&
         typeof row === "object" &&
