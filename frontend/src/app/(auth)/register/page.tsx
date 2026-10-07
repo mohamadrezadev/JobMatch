@@ -1,5 +1,6 @@
 "use client";
 import { useState, type FormEvent } from "react";
+import axios from "axios";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/useAuthStore";
@@ -25,8 +26,12 @@ export default function RegisterPage() {
     try {
       await register(email, password, firstName, lastName);
       router.push("/chat");
-    } catch {
-      setError("ثبت‌نام انجام نشد. ایمیل و اتصال به سرور را بررسی کنید.");
+    } catch (error) {
+      setError(
+        axios.isAxiosError(error) && error.response?.status === 409
+          ? "این ایمیل قبلاً ثبت شده است. وارد حساب خود شوید یا از ایمیل دیگری استفاده کنید."
+          : "ثبت‌نام انجام نشد. اتصال به سرور را بررسی کرده و دوباره تلاش کنید.",
+      );
     } finally {
       setLoading(false);
     }

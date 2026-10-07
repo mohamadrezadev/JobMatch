@@ -148,15 +148,30 @@ let browser;
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page
-      .getByRole("complementary")
       .getByRole("button", { name: "خروج از حساب", exact: true })
+      .last()
       .click();
-    await expect(page).toHaveURL(base + "/");
+    await expect(page).toHaveURL(base + "/login");
+    await page.goto(base);
     await expect(
       page.getByRole("link", { name: "ثبت‌نام و ادامه گفتگو", exact: true }),
     ).toHaveCount(0);
     await input().fill("سلام");
     await expect(send()).toBeEnabled();
+    await page.goto(base + "/register");
+    const registrationForm = page.locator("form");
+    await registrationForm.locator('[autocomplete="given-name"]').fill("کاربر");
+    await registrationForm
+      .locator('[autocomplete="family-name"]')
+      .fill("تکراری");
+    await registrationForm.locator('[autocomplete="email"]').fill(email);
+    await registrationForm
+      .locator('[autocomplete="new-password"]')
+      .fill(password);
+    await registrationForm.locator('button[type="submit"]').click();
+    await expect(registrationForm.getByRole("alert")).toHaveText(
+      "این ایمیل قبلاً ثبت شده است. وارد حساب خود شوید یا از ایمیل دیگری استفاده کنید.",
+    );
     await page.goto(base + "/login");
     await page.getByLabel("ایمیل", { exact: true }).fill(email);
     await page.getByLabel("رمز عبور", { exact: true }).fill(password);

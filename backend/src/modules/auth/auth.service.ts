@@ -8,6 +8,17 @@ import * as bcrypt from "bcrypt";
 import { PrismaService } from "../../prisma/prisma.service";
 import { RegisterDto, LoginDto, RefreshDto } from "./dto/auth.dto";
 
+const DUPLICATE_EMAIL_MESSAGE = "این ایمیل قبلاً ثبت شده است.";
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2002"
+  );
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -19,24 +30,32 @@ export class AuthService {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
-    if (existing) throw new ConflictException("Email already exists");
+    if (existing) throw new ConflictException(DUPLICATE_EMAIL_MESSAGE);
 
     const hash = await bcrypt.hash(dto.password, 12);
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        password: hash,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-      },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        createdAt: true,
-      },
-    });
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          password: hash,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+        },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          createdAt: true,
+        },
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new ConflictException(DUPLICATE_EMAIL_MESSAGE);
+      }
+      throw error;
+    }
 
     const tokens = await this.generateTokens(user.id, user.email);
     await this.prisma.analyticsEvent.create({
