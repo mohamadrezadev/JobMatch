@@ -2,6 +2,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { PageLoading, LoadingState } from "@/components/ui/LoadingState";
 import { Input } from "@/components/ui/Input";
 import { Icon } from "@/components/pathly/Icon";
 import {
@@ -42,9 +43,11 @@ export default function SettingsPage() {
     [notice, setNotice] = useState(""),
     [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
+  const [fetching, setFetching] = useState(true);
   useEffect(() => {
     let alive = true;
     setBusy(true);
+    setFetching(true);
     setNotice("");
     setFailed(false);
     apiClient
@@ -67,7 +70,10 @@ export default function SettingsPage() {
         }
       })
       .finally(() => {
-        if (alive) setBusy(false);
+        if (alive) {
+          setBusy(false);
+          setFetching(false);
+        }
       });
     return () => {
       alive = false;
@@ -92,8 +98,23 @@ export default function SettingsPage() {
       setBusy(false);
     }
   }
+  if (fetching)
+    return (
+      <PageLoading
+        title="در حال دریافت تنظیمات…"
+        description="ترجیحات شغلی و تنظیمات حسابت را دریافت می‌کنیم."
+        layout="form"
+      />
+    );
   return (
     <div className="mx-auto max-w-6xl space-y-7">
+      {busy && (
+        <LoadingState
+          title="در حال ذخیره تنظیمات…"
+          description="ترجیحاتت را ثبت می‌کنیم؛ نتیجه همین‌جا نمایش داده می‌شود."
+          compact
+        />
+      )}
       <WorkspaceHeading
         eyebrow="حساب من / تنظیمات"
         title="فضای کارت، به انتخاب تو"
@@ -188,8 +209,8 @@ export default function SettingsPage() {
                     </button>
                   )}
                 </div>
-                <Button type="submit" disabled={busy}>
-                  {busy ? "در حال پردازش…" : "ذخیره تنظیمات"}
+                <Button type="submit" loading={busy}>
+                  {busy ? "در حال ذخیره تنظیمات…" : "ذخیره تنظیمات"}
                 </Button>
               </div>
             </WorkspaceSection>

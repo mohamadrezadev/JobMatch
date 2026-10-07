@@ -2,6 +2,7 @@ export interface DiscoveryIssue {
   category: "site" | "provider" | "extraction" | "timeout" | "unknown";
   message: string;
   retryable: boolean;
+  stage?: "search" | "fetch" | "extract" | "filter" | "validate";
 }
 export interface DiscoveryJob {
   id: string;

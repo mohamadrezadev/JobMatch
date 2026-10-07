@@ -51,6 +51,18 @@ describe("Discovery use case", () => {
     expect(repository.begin).not.toHaveBeenCalled();
     expect(provider.discover).not.toHaveBeenCalled();
   });
+  it("uses the current context for legacy progress callbacks without a snapshot", async () => {
+    repository.begin.mockResolvedValue({ id: "run", status: "COMPLETED", cached: true, jobs: [], sources: [] });
+    const publish = jest.fn().mockResolvedValue(undefined);
+    await expect(service.search("owner", "conversation", { publish })).resolves.toMatchObject({ cached: true });
+    expect(repository.begin).toHaveBeenCalledWith("owner", "conversation", 2, { targetRoles: ["Backend Developer"] });
+    expect(publish).toHaveBeenCalledWith("search.cached", expect.any(Object));
+  });
+  it("still rejects an explicitly stale run snapshot before starting discovery", async () => {
+    await expect(service.search("owner", "conversation", { publish: jest.fn(), contextVersion: 1 })).rejects.toMatchObject({ code: "CONTEXT_CHANGED", status: 409 });
+    expect(repository.begin).not.toHaveBeenCalled();
+    expect(provider.discover).not.toHaveBeenCalled();
+  });
   it("retains internal source metrics in persistence and strips them from fresh, cached and restored HTTP results", async () => {
     const internalSource = {
       source: "jobinja.ir",

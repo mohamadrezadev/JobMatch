@@ -80,7 +80,7 @@ export default function RegisterPage() {
             {error}
           </p>
         )}
-        <Button type="submit" className="w-full" disabled={loading}>
+        <Button type="submit" className="w-full" loading={loading}>
           {loading ? "در حال ساخت حساب…" : "ساخت حساب کاربری"}
         </Button>
       </form>

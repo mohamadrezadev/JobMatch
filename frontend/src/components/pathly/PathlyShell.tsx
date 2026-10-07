@@ -8,6 +8,7 @@ import { useAuthStore } from "@/stores/useAuthStore";
 import { useThemeStore } from "@/stores/useThemeStore";
 import { Icon } from "./Icon";
 import { BrandLogo } from "@/components/ui/BrandLogo";
+import { PageLoading } from "@/components/ui/LoadingState";
 
 const links = [
   { href: "/chat", label: "دستیار هوشمند", mobile: "دستیار", icon: "comments" },
@@ -186,9 +187,10 @@ export function PathlyShell({ children }: { children: React.ReactNode }) {
             {ready ? (
               children
             ) : (
-              <p role="status" className="p-6 text-sm text-slate-400">
-                در حال آماده‌کردن فضای کاری…
-              </p>
+              <PageLoading
+                title="در حال آماده‌کردن فضای کاری…"
+                description="اطلاعات ورود و فضای شخصی‌ات را بررسی می‌کنیم."
+              />
             )}
           </div>
         </main>

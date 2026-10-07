@@ -23,6 +23,36 @@ function setup(content = JSON.stringify(resolution)) {
   );
   return { service, create };
 }
+it("canonicalizes the reported raw model title while retaining ten jobs and Tehran", async () => {
+  const proposed = {
+    ...resolution,
+    context: {
+      ...emptyContext(),
+      searchContext: {
+        targetRoles: ["بکند دات نت"],
+        requestedCount: 10,
+        locations: ["Tehran"],
+      },
+    },
+  };
+  const { service } = setup(JSON.stringify(proposed));
+  const result = await service.resolve(
+    "10اگهی برای موقیعیت شغلی بکند دات نت در تهران پیدا کن",
+    emptyContext(),
+  );
+  expect(result).toMatchObject({
+    understandingMode: "model",
+    context: {
+      searchContext: {
+        targetRoles: ["Backend Developer"],
+        requiredSkills: [".NET"],
+        requestedCount: 10,
+        locations: ["Tehran"],
+      },
+      candidateFacts: emptyContext().candidateFacts,
+    },
+  });
+});
 it("sends the original message and previous context to the model before persisting the goal", async () => {
   const { service, create } = setup();
   const previous = emptyContext();

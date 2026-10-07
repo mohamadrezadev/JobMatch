@@ -4,7 +4,10 @@ import {
   Logger,
   NotFoundException,
   OnModuleDestroy,
+  Optional,
 } from "@nestjs/common";
+import { randomUUID } from "crypto";
+import { ChatAdmissionService, ChatAdmissionError } from "../chat-admission/chat-admission.service";
 import { Prisma, ChatRun } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ChatService } from "../chat/application/chat.service";
@@ -34,6 +37,7 @@ export class ChatRunService implements OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly chat: ChatService,
     private readonly discovery: JobDiscoveryService,
+    @Optional() private readonly admission?: ChatAdmissionService,
   ) {}
   async owned(userId: string, id: string) {
     const run = await this.prisma.chatRun.findFirst({ where: { id, userId } });
@@ -85,13 +89,16 @@ export class ChatRunService implements OnModuleDestroy {
           status: { in: ["QUEUED", "RUNNING"] },
         },
       });
-      if (active && !terminal((await this.recover(active)).status))
+      if (active && !terminal((await this.recover(active)).status)) {
+        if (this.admission) return { ...this.view(active), reused: true };
         throw new ConflictException("A run is already active");
+      }
     }
     let run: ChatRun;
     try {
-      run = await this.prisma.chatRun.create({
+      const insert = async (tx: Prisma.TransactionClient, id?: string) => tx.chatRun.create({
         data: {
+          ...(id ? { id } : {}),
           userId,
           requestId: input.requestId,
           message: previous?.message ?? input.message!.trim(),
@@ -102,7 +109,26 @@ export class ChatRunService implements OnModuleDestroy {
           assistantMessageId: previous?.assistantMessageId,
         },
       });
+      if (this.admission) {
+        let replayed = false;
+        run = await this.prisma.$transaction(async (tx) => {
+          // Replay can race the initial lookup, so check again under admission.
+          const replay = await tx.chatRun.findUnique({ where: { userId_requestId: { userId, requestId: input.requestId } } });
+          if (replay) { replayed = true; return replay; }
+          const id = randomUUID();
+          await this.admission!.reserve(`user:${userId}`, id, tx);
+          // Respect in-flight runs created before this migration too.
+          const active = await tx.chatRun.findFirst({ where: { userId, status: { in: ["QUEUED", "RUNNING"] }, startedAt: { gt: new Date(Date.now() - 180000) } } });
+          if (active) throw new ChatAdmissionError({ active: true, activeRunId: active.id, nextAllowedAt: new Date(active.startedAt.getTime() + 180000).toISOString(), retryAfterSeconds: 180 });
+          return insert(tx, id);
+        });
+        if (replayed) return this.view(run);
+      } else run = await insert(this.prisma);
     } catch (error) {
+      if (error instanceof ChatAdmissionError && error.availability.activeRunId) {
+        const active = await this.prisma.chatRun.findFirst({ where: { id: error.availability.activeRunId, userId, status: { in: ["QUEUED", "RUNNING"] } } });
+        if (active) return { ...this.view(active), reused: true };
+      }
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === "P2002"
@@ -130,6 +156,9 @@ export class ChatRunService implements OnModuleDestroy {
   }
   view(run: ChatRun) {
     return { runId: run.id, conversationId: run.conversationId };
+  }
+  async availability(userId: string) {
+    return this.admission?.availability(`user:${userId}`) ?? { active: false, activeRunId: null, nextAllowedAt: new Date().toISOString(), retryAfterSeconds: 0 };
   }
   async publish(runId: string, type: string, data: Record<string, unknown>) {
     // The row increment and event insert commit together, even across processes.
@@ -284,6 +313,8 @@ export class ChatRunService implements OnModuleDestroy {
         partial ? "PARTIAL" : "COMPLETED",
         "run.completed",
         { partial },
+        undefined,
+        startedTool,
       );
     } catch (error) {
       const code =
@@ -312,6 +343,7 @@ export class ChatRunService implements OnModuleDestroy {
             : "پردازش درخواست کامل نشد. گفتگو و نتایج دریافت‌شده حفظ شده‌اند.",
         },
         code,
+        startedTool,
       );
     }
   }
@@ -321,6 +353,7 @@ export class ChatRunService implements OnModuleDestroy {
     type: string,
     data: Record<string, unknown>,
     errorCode?: string,
+    searched = false,
   ) {
     await this.prisma.$transaction(async (tx) => {
       const run = await tx.chatRun.update({
@@ -340,6 +373,12 @@ export class ChatRunService implements OnModuleDestroy {
           data: data as Prisma.InputJsonValue,
         },
       });
+      if (this.admission) {
+        await this.admission.release(`user:${run.userId}`, id, searched, tx);
+        const availability = await this.admission.availability(`user:${run.userId}`, tx);
+        // The event remains part of the same terminal-state transaction.
+        await tx.chatRunEvent.update({ where: { runId_sequence: { runId: id, sequence: run.eventSequence } }, data: { data: { ...data, availability: { ...availability } } as Prisma.InputJsonValue } });
+      }
     });
   }
   private async recover(run: ChatRun): Promise<ChatRun> {
@@ -360,6 +399,7 @@ export class ChatRunService implements OnModuleDestroy {
       const current = await tx.chatRun.findUniqueOrThrow({
         where: { id: run.id },
       });
+      await this.admission?.release(`user:${run.userId}`, run.id, true, tx);
       await tx.chatRunEvent.create({
         data: {
           runId: run.id,

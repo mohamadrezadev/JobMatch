@@ -9,6 +9,7 @@ import {
   Res,
   UseFilters,
   UseGuards,
+  Optional,
 } from "@nestjs/common";
 import {
   ApiBearerAuth,
@@ -18,7 +19,8 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import { IsString, Matches, MaxLength } from "class-validator";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
+import { ChatAdmissionService } from "../../chat-admission/chat-admission.service";
 import { Request, Response } from "express";
 import { JwtAuthGuard } from "../../../common/guards/jwt-auth.guard";
 import { CurrentUser } from "../../../common/decorators/current-user.decorator";
@@ -52,7 +54,7 @@ export class GuestChatController {
     string,
     { count: number; until: number }
   >();
-  constructor(private readonly chat: GuestChatService) {}
+  constructor(private readonly chat: GuestChatService, @Optional() private readonly admission?: ChatAdmissionService) {}
   // Bound session-reset abuse without trusting proxy headers.
   private throttle(request: Request) {
     const now = Date.now();
@@ -97,7 +99,7 @@ export class GuestChatController {
       });
     return {
       success: true,
-      data,
+      data: { ...data, availability: await this.admission?.availability(`guest:${raw ? hash(raw) : "new"}`) },
     };
   }
   @Post("message")
@@ -127,10 +129,14 @@ export class GuestChatController {
       path: "/api/chat/guest",
     });
     response.setHeader("Cache-Control", "no-store");
-    return {
-      success: true,
-      data: await this.chat.send(hash(raw), dto.message.trim()),
-    };
+    const key = `guest:${hash(raw)}`, lease = randomUUID();
+    await this.admission?.reserve(key, lease);
+    let searched = false;
+    try {
+      const data = await this.chat.send(hash(raw), dto.message.trim(), async (type) => { if (type === "agent.started") searched = true; });
+      await this.admission?.release(key, lease, searched);
+      return { success: true, data: { ...data, availability: await this.admission?.availability(key) } };
+    } catch (error) { await this.admission?.release(key, lease, searched); throw error; }
   }
   @Post("message/stream")
   @HttpCode(200)
@@ -153,6 +159,9 @@ export class GuestChatController {
       maxAge: 86400000,
       path: "/api/chat/guest",
     });
+    const key = `guest:${hash(raw)}`, lease = randomUUID();
+    await this.admission?.reserve(key, lease);
+    let searched = false;
     response
       .status(200)
       .set({
@@ -171,6 +180,7 @@ export class GuestChatController {
     }, 10000);
     response.on("close", close);
     const publish = async (type: string, data: Record<string, unknown>) => {
+      if (type === "agent.started") searched = true;
       if (!closed)
         response.write(
           `event: ${type}\ndata: ${JSON.stringify({ type, data })}\n\n`,
@@ -179,10 +189,11 @@ export class GuestChatController {
     try {
       // Disconnection does not resubmit or discard a successful committed turn.
       const data = await this.chat.send(hash(raw), dto.message.trim(), publish);
-      await publish("guest.completed", { state: data });
+      await this.admission?.release(key, lease, searched);
+      await publish("guest.completed", { state: { ...data, availability: await this.admission?.availability(key) } });
     } catch (error) {
-      const { code, message, status } = chatFailure(error);
-      await publish("guest.failed", { code, message, status });
+      await this.admission?.release(key, lease, searched);
+      await publish("guest.failed", { ...chatFailure(error), availability: await this.admission?.availability(key) });
     } finally {
       clearInterval(heartbeat);
       response.off("close", close);

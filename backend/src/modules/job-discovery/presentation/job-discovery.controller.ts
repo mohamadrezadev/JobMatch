@@ -11,6 +11,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Optional,
 } from "@nestjs/common";
 import {
   ApiBearerAuth,
@@ -26,6 +27,9 @@ import { JwtAuthGuard } from "../../../common/guards/jwt-auth.guard";
 import { CurrentUser } from "../../../common/decorators/current-user.decorator";
 import { JobDiscoveryService } from "../application/job-discovery.service";
 import { DiscoveryError } from "../domain/discovery";
+import { randomUUID } from "crypto";
+import { ChatAdmissionService, ChatAdmissionError } from "../../chat-admission/chat-admission.service";
+import { chatFailure } from "../../chat/presentation/chat-exception.filter";
 
 export class DiscoverJobsDto {
   @ApiProperty({
@@ -38,6 +42,12 @@ export class DiscoverJobsDto {
 @Catch()
 export class DiscoveryExceptionFilter implements ExceptionFilter {
   catch(error: unknown, host: ArgumentsHost) {
+    if (error instanceof ChatAdmissionError) {
+      const { status, ...details } = chatFailure(error);
+      host.switchToHttp().getResponse<Response>().setHeader("Retry-After", String(error.availability.retryAfterSeconds));
+      host.switchToHttp().getResponse<Response>().status(status).json({ success: false, error: details });
+      return;
+    }
     const status =
       error instanceof DiscoveryError
         ? error.status
@@ -75,7 +85,7 @@ export class DiscoveryExceptionFilter implements ExceptionFilter {
 @UseFilters(DiscoveryExceptionFilter)
 export class JobDiscoveryController {
   private readonly limits = new Map<string, { count: number; until: number }>();
-  constructor(private readonly discovery: JobDiscoveryService) {}
+  constructor(private readonly discovery: JobDiscoveryService, @Optional() private readonly admission?: ChatAdmissionService) {}
   @Get("conversations/:id/latest")
   @ApiOperation({
     summary:
@@ -122,9 +132,11 @@ export class JobDiscoveryController {
       throw new DiscoveryError("RATE_LIMITED", 429);
     limit.count++;
     this.limits.set(user.sub, limit);
-    return {
+    const key = `user:${user.sub}`, lease = randomUUID();
+    await this.admission?.reserve(key, lease);
+    try { return {
       success: true,
       data: await this.discovery.search(user.sub, dto.conversationId),
-    };
+    }; } finally { await this.admission?.release(key, lease, true); }
   }
 }

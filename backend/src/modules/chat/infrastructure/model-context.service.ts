@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { ContextService } from "../domain/context.service";
+import { canonicalSearchIntent } from "../domain/canonical-search-intent";
 import {
   ConversationContext,
   INTENTS,
@@ -141,10 +142,13 @@ export class ModelContextService extends ContextService {
               },
               {
                 role: "user",
-                content: JSON.stringify({ message, previousContext: {
-                  searchContext: previous.searchContext,
-                  candidateFacts: previous.candidateFacts,
-                } }),
+                content: JSON.stringify({
+                  message,
+                  previousContext: {
+                    searchContext: previous.searchContext,
+                    candidateFacts: previous.candidateFacts,
+                  },
+                }),
               },
             ],
           },
@@ -164,7 +168,16 @@ export class ModelContextService extends ContextService {
         ),
       );
       return result
-        ? { ...result, understandingMode: "model" }
+        ? {
+            ...result,
+            context: {
+              ...result.context,
+              searchContext: canonicalSearchIntent(
+                result.context.searchContext,
+              ),
+            },
+            understandingMode: "model",
+          }
         : super.resolve(message, previous);
     } catch {
       return super.resolve(message, previous);

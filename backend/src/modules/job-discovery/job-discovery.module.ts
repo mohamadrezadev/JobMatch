@@ -19,10 +19,11 @@ import {
   AGENT_SOURCES,
 } from "./application/agent-planner.service";
 import { AgentSearchService } from "./application/agent-search.service";
+import { ChatAdmissionModule } from "../chat-admission/chat-admission.module";
 
 @Module({
   exports: [JobDiscoveryService, AgentSearchService],
-  imports: [PrismaModule],
+  imports: [PrismaModule, ChatAdmissionModule],
   controllers: [JobDiscoveryController],
   providers: [
     { provide: DiscoveryRepository, useClass: PrismaDiscoveryRepository },

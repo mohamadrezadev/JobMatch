@@ -13,6 +13,13 @@ import {
 import { Icon } from "./Icon";
 import { DemoNotice } from "./DemoNotice";
 import { recordEvent } from "@/lib/analytics";
+import {
+  JobFilters,
+  emptyOpportunityFilters,
+  type OpportunityFilters,
+} from "./JobFilters";
+import { JobsPagination } from "./JobsPagination";
+import { LoadingState, ContentSkeleton } from "@/components/ui/LoadingState";
 
 export function JobsView({ initialJobId }: { initialJobId?: string }) {
   const detailsRef = useRef<HTMLDivElement>(null);
@@ -23,40 +30,39 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
     new URLSearchParams(window.location.search).get("preview") === "design";
   const [jobs, setJobs] = useState<PathlyJob[]>([]);
   const [selectedId, setSelectedId] = useState(initialJobId ?? "");
-  const [query, setQuery] = useState("");
-  const [location, setLocation] = useState("all");
-  const [junior, setJunior] = useState(preview && !isAuthenticated);
-  const [frontend, setFrontend] = useState(preview && !isAuthenticated);
+  const [filters, setFilters] = useState<OpportunityFilters>({
+    ...emptyOpportunityFilters,
+    ...(preview && !isAuthenticated
+      ? { level: "Junior", role: "Frontend" }
+      : {}),
+  });
+  const {
+    query,
+    city: cityFilter,
+    workType: workFilter,
+    level: levelFilter,
+    role: targetRole,
+    skills: skillFilter,
+    minimumSalary,
+  } = filters;
+  const listRef = useRef<HTMLDivElement>(null);
+  const [total, setTotal] = useState<number | undefined>();
+  const [loadedPage, setLoadedPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [demo, setDemo] = useState(preview);
   const [reload, setReload] = useState(0);
   const [matches, setMatches] = useState<Record<string, MatchResult>>({});
+  const [matchingId, setMatchingId] = useState("");
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(0);
-  const [minimumSalary, setMinimumSalary] = useState("");
-  const [skillFilter, setSkillFilter] = useState("");
-  const [targetRole, setTargetRole] = useState("");
-  const [cityFilter, setCityFilter] = useState("");
-  const [workFilter, setWorkFilter] = useState("");
-  const [levelFilter, setLevelFilter] = useState("");
   const [reason, setReason] = useState("Technology");
   const [feedbackNotice, setFeedbackNotice] = useState("");
   const [feedbackBusy, setFeedbackBusy] = useState(false);
-  useEffect(() => {
+  function applyFilters(next: OpportunityFilters) {
+    setFilters(next);
     setPage(1);
-  }, [
-    query,
-    location,
-    junior,
-    frontend,
-    minimumSalary,
-    skillFilter,
-    targetRole,
-    cityFilter,
-    workFilter,
-    levelFilter,
-  ]);
+  }
   useEffect(() => {
     let alive = true;
     setMatches({});
@@ -67,7 +73,6 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
       return;
     }
     setDemo(false);
-    setJobs([]);
     setLoading(true);
     setError("");
     async function load() {
@@ -77,11 +82,6 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
           pageSize: "12",
         });
         if (query) params.set("q", query);
-        if (location === "tehran") params.set("location", "tehran");
-        if (location === "remote" || location === "hybrid")
-          params.set("workType", location === "remote" ? "Remote" : "Hybrid");
-        if (junior) params.set("experienceLevel", "Junior");
-        if (frontend) params.set("role", "Frontend");
         if (minimumSalary) params.set("minimumSalary", minimumSalary);
         if (skillFilter) params.set("skills", skillFilter);
         if (targetRole) params.set("role", targetRole);
@@ -89,13 +89,18 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
         if (workFilter) params.set("workType", workFilter);
         if (levelFilter) params.set("experienceLevel", levelFilter);
         const response = await apiClient.get<
-          | { items: Job[]; pages?: number }
-          | { success: boolean; data: { items: Job[]; pages?: number } }
+          | { items: Job[]; pages?: number; total?: number }
+          | {
+              success: boolean;
+              data: { items: Job[]; pages?: number; total?: number };
+            }
         >(`/api/jobs/search?${params}`);
         const data = unwrap(response.data);
         const rows = data.items.map(toPathlyJob);
         if (alive) {
           setPages(data.pages ?? 0);
+          setTotal(data.total);
+          setLoadedPage(page);
           setMatches(
             Object.fromEntries(
               data.items
@@ -131,9 +136,6 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
     reload,
     preview,
     query,
-    location,
-    junior,
-    frontend,
     page,
     minimumSalary,
     skillFilter,
@@ -151,26 +153,46 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
               .toLowerCase();
             return (
               terms.includes(query.toLowerCase()) &&
-              (location === "all" ||
-                (location === "remote" && job.isRemote) ||
-                (location === "hybrid" && job.isHybrid) ||
-                (location === "tehran" &&
-                  /tehran|تهران/i.test(job.location))) &&
-              (!junior ||
-                /junior|جونیور|کارآموز/i.test(job.title + job.type)) &&
-              (!frontend || /react|فرانت|frontend|front.end/i.test(terms))
+              (!cityFilter ||
+                job.location.toLowerCase().includes(cityFilter.toLowerCase()) ||
+                job.locationText.includes(cityFilter)) &&
+              (!workFilter ||
+                (workFilter === "Remote" && job.isRemote) ||
+                (workFilter === "Hybrid" && job.isHybrid) ||
+                (workFilter === "OnSite" && !job.isRemote && !job.isHybrid)) &&
+              (!levelFilter ||
+                (levelFilter === "Junior" &&
+                  /junior|جونیور|کارآموز/i.test(job.title + job.type)) ||
+                job.type === levelFilter) &&
+              (!targetRole ||
+                (targetRole === "Frontend"
+                  ? /react|فرانت|frontend|front.end/i.test(terms)
+                  : terms.includes(targetRole.toLowerCase()))) &&
+              (!skillFilter ||
+                skillFilter
+                  .split(/[,،]/)
+                  .every((skill) => terms.includes(skill.trim().toLowerCase())))
             );
           })
         : jobs,
-    [jobs, query, location, junior, frontend, demo],
+    [
+      jobs,
+      query,
+      cityFilter,
+      workFilter,
+      levelFilter,
+      targetRole,
+      skillFilter,
+      demo,
+    ],
   );
   const selected = filtered.find((job) => job.id === selectedId) ?? filtered[0];
   const match = selected ? matches[selected.id] : undefined;
   useEffect(() => {
     setFeedbackNotice("");
-    if (selected && !selected.demo && isAuthenticated)
+    if (selected && !selected.demo && isAuthenticated && !loading && !error)
       recordEvent("Job Viewed", selected.id);
-  }, [selected?.id, isAuthenticated]);
+  }, [selected?.id, isAuthenticated, loading, error]);
   async function feedback(rating: "Interested" | "NotInterested") {
     if (!selected || selected.demo) return;
     setFeedbackBusy(true);
@@ -189,10 +211,20 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
     }
   }
   useEffect(() => {
-    if (!selected || selected.demo || !isAuthenticated || matches[selected.id])
+    if (
+      !selected ||
+      selected.demo ||
+      !isAuthenticated ||
+      matches[selected.id] ||
+      loading ||
+      error
+    ) {
+      setMatchingId("");
       return;
+    }
     let alive = true;
     const id = selected.id;
+    setMatchingId(id);
     apiClient
       .post<MatchResult | { success: boolean; data: MatchResult }>(
         `/api/matching/${id}`,
@@ -204,11 +236,14 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
             [id]: unwrap(response.data),
           }));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setMatchingId("");
+      });
     return () => {
       alive = false;
     };
-  }, [selected?.id, isAuthenticated, matches]);
+  }, [selected?.id, isAuthenticated, matches, loading, error]);
   const score = match
     ? typeof match.matchScore === "number"
       ? match.matchScore
@@ -225,8 +260,11 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
     setJobs(demoJobs);
     setDemo(true);
     setSelectedId(demoJobs[0].id);
-    setJunior(true);
-    setFrontend(true);
+    applyFilters({
+      ...emptyOpportunityFilters,
+      level: "Junior",
+      role: "Frontend",
+    });
     setError("");
   };
   return (
@@ -246,126 +284,7 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
           <Icon name="comments" /> جستجو با دستیار
         </Link>
       </header>
-      <div className="glass-card space-y-3 rounded-2xl border border-slate-200 bg-light-surface p-4 dark:border-dark-border dark:bg-dark-surface">
-        <div className="flex flex-col gap-3 md:flex-row">
-          <div className="relative flex-1">
-            <Icon
-              name="magnifying-glass"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400"
-            />
-            <input
-              aria-label="جستجوی فرصت‌ها"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="جستجو بر اساس عنوان شغلی، مهارت یا شرکت..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-4 pr-10 text-xs text-slate-800 focus:border-brand-500 focus:outline-none dark:border-dark-border dark:bg-dark-card dark:text-white"
-            />
-          </div>
-          <select
-            aria-label="شهر و نوع حضور"
-            value={location}
-            onChange={(event) => setLocation(event.target.value)}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-700 focus:outline-none dark:border-dark-border dark:bg-dark-card dark:text-slate-300"
-          >
-            <option value="all">همه شهرها / نوع حضور</option>
-            <option value="remote">دورکاری (Remote)</option>
-            <option value="tehran">تهران</option>
-            <option value="hybrid">هیبرید / نیمه‌حضوری</option>
-          </select>
-        </div>
-        {!demo && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <input
-              aria-label="نقش شغلی"
-              value={targetRole}
-              onChange={(e) => setTargetRole(e.target.value)}
-              placeholder="عنوان شغلی، مثلاً حسابدار"
-              className="rounded-xl border p-2 dark:bg-dark-card"
-            />
-            <input
-              aria-label="شهر دلخواه"
-              value={cityFilter}
-              onChange={(e) => setCityFilter(e.target.value)}
-              placeholder="شهر دلخواه"
-              className="rounded-xl border p-2 dark:bg-dark-card"
-            />
-            <select
-              aria-label="نوع همکاری دلخواه"
-              value={workFilter}
-              onChange={(e) => setWorkFilter(e.target.value)}
-              className="rounded-xl border p-2 dark:bg-dark-card"
-            >
-              <option value="">همه انواع همکاری</option>
-              <option value="Remote">دورکار</option>
-              <option value="Hybrid">هیبرید</option>
-              <option value="OnSite">حضوری</option>
-            </select>
-            <select
-              aria-label="سطح تجربه دلخواه"
-              value={levelFilter}
-              onChange={(e) => setLevelFilter(e.target.value)}
-              className="rounded-xl border p-2 dark:bg-dark-card"
-            >
-              <option value="">همه سطوح تجربه</option>
-              <option value="Junior">جونیور</option>
-              <option value="Mid">میدل</option>
-              <option value="Senior">سنیور</option>
-            </select>
-            <input
-              aria-label="حداقل حقوق ماهانه به تومان"
-              type="number"
-              min="0"
-              value={minimumSalary}
-              onChange={(e) => setMinimumSalary(e.target.value)}
-              placeholder="حداقل حقوق ماهانه (تومان)"
-              className="rounded-xl border p-2 dark:bg-dark-card"
-            />
-            <input
-              aria-label="فیلتر مهارت‌ها"
-              value={skillFilter}
-              onChange={(e) => setSkillFilter(e.target.value)}
-              placeholder="مهارت‌ها با ویرگول، مثل React, TypeScript"
-              className="rounded-xl border p-2 dark:bg-dark-card"
-            />
-            <label>
-              <input
-                type="checkbox"
-                checked={junior}
-                onChange={(e) => setJunior(e.target.checked)}
-              />{" "}
-              جونیور
-            </label>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2 text-xs dark:border-dark-border/50">
-          <span className="font-medium text-slate-400">فیلترهای فعال:</span>
-          {junior && (
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-500/10 px-2.5 py-1 font-semibold text-brand-500">
-              سطح جونیور / کارآموز
-              <button
-                aria-label="حذف فیلتر جونیور"
-                onClick={() => setJunior(false)}
-              >
-                <Icon name="xmark" />
-              </button>
-            </span>
-          )}
-          {frontend && (
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2.5 py-1 font-semibold text-emerald-500">
-              فرانت‌اند (React / Web)
-              <button
-                aria-label="حذف فیلتر فرانت‌اند"
-                onClick={() => setFrontend(false)}
-              >
-                <Icon name="xmark" />
-              </button>
-            </span>
-          )}
-          {!junior && !frontend && location === "all" && (
-            <span className="text-slate-400">بدون محدودیت</span>
-          )}
-        </div>
-      </div>
+      <JobFilters value={filters} onApply={applyFilters} />
       {demo ? (
         <DemoNotice>
           آگهی‌ها و امتیازهای این نما همان نمونه‌های مرجع هستند.
@@ -389,9 +308,11 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
         </button>
       )}
       {loading && (
-        <p role="status" className="text-xs text-slate-400">
-          در حال دریافت فرصت‌ها…
-        </p>
+        <LoadingState
+          title="در حال دریافت فرصت‌ها…"
+          description="آگهی‌های مطابق فیلترهایت را دریافت می‌کنیم."
+          compact
+        />
       )}
       {error && (
         <p
@@ -408,73 +329,137 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
         </p>
       )}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="space-y-3 lg:col-span-7">
-          {!loading && !filtered.length && (
-            <p className="p-4 text-xs text-slate-400">
-              هیچ شغلی با این مشخصات یافت نشد.
+        <div
+          ref={listRef}
+          tabIndex={-1}
+          aria-label="نتایج فرصت‌ها"
+          aria-busy={loading}
+          className="space-y-3 scroll-mt-24 outline-none lg:col-span-7"
+        >
+          {!loading && !error && (
+            <p
+              role="status"
+              className="text-xs text-slate-600 dark:text-slate-300"
+            >
+              {demo
+                ? `${filtered.length.toLocaleString("fa-IR")} فرصت نمونه`
+                : typeof total === "number"
+                  ? `${total.toLocaleString("fa-IR")} فرصت پیدا شد`
+                  : `${filtered.length.toLocaleString("fa-IR")} فرصت در این صفحه`}
             </p>
           )}
-          {filtered.map((job) => (
-            <button
-              key={job.id}
-              onClick={() => {
-                setSelectedId(job.id);
-                if (window.matchMedia?.("(max-width: 1023px)").matches)
-                  requestAnimationFrame(() =>
-                    detailsRef.current?.scrollIntoView({
-                      behavior: "smooth",
-                      block: "start",
-                    }),
-                  );
-              }}
-              aria-pressed={selected?.id === job.id}
-              className={`interactive-hover w-full space-y-2 rounded-2xl border p-4 text-right transition-all ${selected?.id === job.id ? "border-brand-500 bg-brand-500/5" : "border-slate-200 bg-light-surface dark:border-dark-border dark:bg-dark-surface"}`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <h2 className="text-sm font-bold text-slate-800 dark:text-white">
-                    {job.title}
-                  </h2>
-                  <p className="text-xs text-slate-400">
-                    {job.company} • {job.locationText}
-                  </p>
-                </div>
-                {job.score !== undefined && (
-                  <span className="rounded-xl bg-emerald-500/10 px-2.5 py-1 text-xs font-black text-emerald-500">
-                    {job.score}٪
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-1 text-[10px]">
-                {job.matchedSkills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="rounded bg-slate-100 px-2 py-0.5 text-slate-600 dark:bg-dark-card dark:text-slate-300"
-                  >
-                    {skill}
-                  </span>
-                ))}
-                {job.missingSkills.map((skill) => (
-                  <span
-                    key={`missing-${skill}`}
-                    className="rounded bg-amber-500/10 px-2 py-0.5 text-amber-600"
-                  >
-                    نیاز به {skill}
-                  </span>
-                ))}
-              </div>
-              <p className="text-[10px] text-slate-400">
-                {job.salary} {job.source ? `• ${job.source}` : ""}
+          {!loading && !error && !filtered.length && (
+            <div className="space-y-3 rounded-2xl border border-dashed border-slate-300 p-6 text-center dark:border-slate-600">
+              <p className="text-sm font-semibold">
+                هیچ شغلی با این مشخصات یافت نشد.
               </p>
-            </button>
-          ))}
+              <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
+                فیلترها را کمتر کن یا با دستیار دنبال فرصت‌های تازه بگرد.
+              </p>
+              {Object.values(filters).some(Boolean) && (
+                <button
+                  onClick={() => applyFilters(emptyOpportunityFilters)}
+                  className="min-h-11 rounded-xl bg-brand-500/10 px-4 text-xs font-bold text-brand-600 dark:text-brand-200"
+                >
+                  نمایش بدون فیلتر
+                </button>
+              )}
+              <Link
+                href="/chat"
+                className="inline-flex min-h-11 items-center rounded-xl px-4 text-xs font-bold text-brand-600 dark:text-brand-200"
+              >
+                یافتن فرصت با دستیار
+              </Link>
+            </div>
+          )}
+          {loading && <ContentSkeleton layout="list" />}
+          {!loading &&
+            !error &&
+            filtered.map((job) => (
+              <button
+                key={job.id}
+                onClick={() => {
+                  setSelectedId(job.id);
+                  if (window.matchMedia?.("(max-width: 1023px)").matches)
+                    requestAnimationFrame(() =>
+                      detailsRef.current?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      }),
+                    );
+                }}
+                aria-pressed={selected?.id === job.id}
+                className={`interactive-hover w-full space-y-2 rounded-2xl border p-4 text-right transition-all ${selected?.id === job.id ? "border-brand-500 bg-brand-500/5" : "border-slate-200 bg-light-surface dark:border-dark-border dark:bg-dark-surface"}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <h2 className="text-sm font-bold text-slate-800 dark:text-white">
+                      {job.title}
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      {job.company} • {job.locationText}
+                    </p>
+                  </div>
+                  {job.score !== undefined && (
+                    <span className="rounded-xl bg-emerald-500/10 px-2.5 py-1 text-xs font-black text-emerald-500">
+                      {job.score}٪
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1 text-[10px]">
+                  {job.matchedSkills.map((skill) => (
+                    <span
+                      key={skill}
+                      className="rounded bg-slate-100 px-2 py-0.5 text-slate-600 dark:bg-dark-card dark:text-slate-300"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                  {job.missingSkills.map((skill) => (
+                    <span
+                      key={`missing-${skill}`}
+                      className="rounded bg-amber-500/10 px-2 py-0.5 text-amber-600"
+                    >
+                      نیاز به {skill}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  {job.salary} {job.source ? `• ${job.source}` : ""}
+                </p>
+              </button>
+            ))}
+          {!demo && !error && (
+            <JobsPagination
+              page={loadedPage}
+              pages={pages}
+              loading={loading}
+              onPage={(next) => {
+                setPage(next);
+                listRef.current?.scrollIntoView?.({
+                  behavior: "smooth",
+                  block: "start",
+                });
+                listRef.current?.focus({ preventScroll: true });
+              }}
+            />
+          )}
         </div>
         <div
           ref={detailsRef}
           className="glass-card h-fit scroll-mt-24 rounded-3xl border border-slate-200 bg-light-surface p-5 dark:border-dark-border dark:bg-dark-surface sm:p-6 lg:sticky lg:top-24 lg:col-span-5"
         >
-          {selected ? (
+          {loading ? (
+            <ContentSkeleton layout="detail" />
+          ) : selected && !error ? (
             <div className="space-y-6">
+              {matchingId === selected.id && (
+                <LoadingState
+                  title="در حال بررسی تطابق این فرصت…"
+                  description="اطلاعات آگهی و رزومه‌ات را بررسی می‌کنیم."
+                  compact
+                />
+              )}
               <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4 dark:border-dark-border">
                 <div className="space-y-1">
                   <h2 className="text-xl font-bold text-slate-800 dark:text-white">
@@ -537,6 +522,9 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
               )}
               {!selected.demo && isAuthenticated && (
                 <div className="space-y-3">
+                  {feedbackBusy && (
+                    <LoadingState title="در حال ذخیره بازخورد…" compact />
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <button
                       disabled={feedbackBusy}
@@ -576,7 +564,9 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
                   {feedbackNotice && <p role="status">{feedbackNotice}</p>}
                 </div>
               )}
-              <div className={`grid grid-cols-1 gap-4 pt-2 ${selected.demo || analyzed ? "md:grid-cols-2" : ""}`}>
+              <div
+                className={`grid grid-cols-1 gap-4 pt-2 ${selected.demo || analyzed ? "md:grid-cols-2" : ""}`}
+              >
                 <div className="space-y-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                   <h3 className="flex items-center gap-1.5 text-xs font-bold text-emerald-500">
                     <Icon name="circle-check" />
@@ -596,22 +586,24 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
                     ))}
                   </div>
                 </div>
-                {(selected.demo || analyzed) && <div className="space-y-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-                  <h3 className="flex items-center gap-1.5 text-xs font-bold text-amber-500">
-                    <Icon name="triangle-exclamation" />
-                    شکاف مهارت (Skill Gap)
-                  </h3>
-                  <div className="flex flex-wrap gap-1">
-                    {missing.map((skill) => (
-                      <span
-                        key={skill}
-                        className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-300"
-                      >
-                        {skill}
-                      </span>
-                    ))}
+                {(selected.demo || analyzed) && (
+                  <div className="space-y-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+                    <h3 className="flex items-center gap-1.5 text-xs font-bold text-amber-500">
+                      <Icon name="triangle-exclamation" />
+                      شکاف مهارت (Skill Gap)
+                    </h3>
+                    <div className="flex flex-wrap gap-1">
+                      {missing.map((skill) => (
+                        <span
+                          key={skill}
+                          className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-300"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>}
+                )}
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-dark-border">
                 <span className="text-xs text-slate-400">
@@ -629,31 +621,14 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
             <div className="space-y-2 py-12 text-center text-slate-400">
               <Icon name="hand-pointer" className="text-3xl" />
               <p className="text-xs">
-                یک موقعیت شغلی را برای مشاهده جزئیات انتخاب کنید.
+                {loading
+                  ? "در حال دریافت جزئیات فرصت‌ها…"
+                  : "یک موقعیت شغلی را برای مشاهده جزئیات انتخاب کنید."}
               </p>
             </div>
           )}
         </div>
       </div>
-      {!demo && pages > 1 && (
-        <div className="flex items-center gap-4">
-          <button
-            disabled={page <= 1 || loading}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            صفحه قبل
-          </button>
-          <span>
-            صفحه {page} از {pages}
-          </span>
-          <button
-            disabled={page >= pages || loading}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            صفحه بعد
-          </button>
-        </div>
-      )}
     </section>
   );
 }

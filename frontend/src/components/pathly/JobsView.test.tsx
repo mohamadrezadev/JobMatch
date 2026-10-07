@@ -14,6 +14,105 @@ jest.mock("@/lib/api-client", () => ({
   default: { get: jest.fn(), post: jest.fn() },
 }));
 describe("Reference job discovery", () => {
+  it("applies a draft once on page one and exposes every active filter for removal", async () => {
+    mockAuthenticated = true;
+    window.history.replaceState({}, "", "/jobs");
+    (apiClient.get as jest.Mock).mockResolvedValue({
+      data: { items: [], pages: 3, total: 30 },
+    });
+    render(<JobsView />);
+    await screen.findByText("۳۰ فرصت پیدا شد");
+    fireEvent.click(screen.getByRole("button", { name: "صفحه بعد" }));
+    await waitFor(() =>
+      expect(apiClient.get).toHaveBeenLastCalledWith(
+        expect.stringContaining("page=2"),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "صفحه بعد" })).toBeEnabled(),
+    );
+    (apiClient.get as jest.Mock).mockClear();
+    fireEvent.change(screen.getByLabelText("جستجوی فرصت‌ها"), {
+      target: { value: "  حسابدار  " },
+    });
+    fireEvent.change(screen.getByLabelText("شهر"), {
+      target: { value: "تهران" },
+    });
+    fireEvent.change(screen.getByLabelText("نوع حضور"), {
+      target: { value: "Remote" },
+    });
+    expect(apiClient.get).not.toHaveBeenCalled();
+    const toggle = screen.getByRole("button", { name: "فیلترهای بیشتر" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.change(screen.getByLabelText("سطح تجربه"), {
+      target: { value: "Senior" },
+    });
+    fireEvent.change(screen.getByLabelText(/^حداقل حقوق ماهانه/), {
+      target: { value: "20000000" },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "فیلتر فرصت‌ها" }));
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(1));
+    const request = new URL(
+      (apiClient.get as jest.Mock).mock.calls[0][0],
+      "http://localhost",
+    );
+    expect(Object.fromEntries(request.searchParams)).toEqual({
+      page: "1",
+      pageSize: "12",
+      q: "حسابدار",
+      location: "تهران",
+      workType: "Remote",
+      experienceLevel: "Senior",
+      minimumSalary: "20000000",
+    });
+    expect(
+      screen.getByRole("button", { name: "حذف شهر: تهران" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "حذف دورکاری" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "حذف شهر: تهران" }));
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(2));
+    const removed = new URL(
+      (apiClient.get as jest.Mock).mock.calls[1][0],
+      "http://localhost",
+    );
+    expect(removed.searchParams.has("location")).toBe(false);
+    expect(removed.searchParams.get("workType")).toBe("Remote");
+    fireEvent.click(screen.getByRole("button", { name: "پاک کردن همه" }));
+    await waitFor(() =>
+      expect(apiClient.get).toHaveBeenLastCalledWith(
+        "/api/jobs/search?page=1&pageSize=12",
+      ),
+    );
+    expect(screen.getByLabelText("جستجوی فرصت‌ها")).toHaveValue("");
+    expect(screen.getByText("بدون محدودیت")).toBeInTheDocument();
+  });
+  it("keeps failed navigation visible and retries the requested page", async () => {
+    mockAuthenticated = true;
+    window.history.replaceState({}, "", "/jobs");
+    (apiClient.get as jest.Mock)
+      .mockResolvedValueOnce({ data: { items: [], pages: 2 } })
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ data: { items: [], pages: 2 } });
+    render(<JobsView />);
+    await screen.findByRole("navigation", { name: "صفحه‌بندی فرصت‌ها" });
+    fireEvent.click(screen.getByRole("button", { name: "صفحه بعد" }));
+    await screen.findByRole("alert");
+    expect(
+      screen.queryByRole("navigation", { name: "صفحه‌بندی فرصت‌ها" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("هیچ شغلی با این مشخصات یافت نشد."),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "تلاش دوباره" }));
+    await screen.findByRole("button", { name: "صفحه ۲" });
+    expect(apiClient.get).toHaveBeenLastCalledWith(
+      expect.stringContaining("page=2"),
+    );
+  });
   it("shows requirements without a percentage or invented skill gaps when no resume exists", async () => {
     mockAuthenticated = true;
     (apiClient.post as jest.Mock).mockResolvedValue({ data: {} });
@@ -41,7 +140,9 @@ describe("Reference job discovery", () => {
     render(<JobsView />);
     await screen.findByText(/هنوز رزومه‌ای ذخیره نکرده‌اید/);
     expect(screen.queryByText("تطابق با شما")).not.toBeInTheDocument();
-    expect(screen.queryByText("شکاف مهارت (Skill Gap)")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("شکاف مهارت (Skill Gap)"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText(/مهارت‌های موردنیاز آگهی/)).toBeInTheDocument();
     expect(screen.queryByText("نیاز به Excel")).not.toBeInTheDocument();
     expect(
@@ -58,6 +159,7 @@ describe("Reference job discovery", () => {
     fireEvent.change(screen.getByLabelText("جستجوی فرصت‌ها"), {
       target: { value: "Tailwind" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "اعمال فیلترها" }));
     expect(
       screen.getAllByRole("button", { name: /شرکت پیشگامان فناوری/ }),
     ).toHaveLength(1);
@@ -74,31 +176,34 @@ describe("Reference job discovery", () => {
   });
   it("supports hybrid and remote filters with an empty state", () => {
     render(<JobsView />);
-    fireEvent.change(screen.getByLabelText("شهر و نوع حضور"), {
-      target: { value: "hybrid" },
+    fireEvent.change(screen.getByLabelText("نوع حضور"), {
+      target: { value: "Hybrid" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "اعمال فیلترها" }));
     expect(
       screen.getAllByRole("button", { name: /شرکت پیشگامان فناوری/ }),
     ).toHaveLength(1);
-    fireEvent.change(screen.getByLabelText("شهر و نوع حضور"), {
-      target: { value: "remote" },
+    fireEvent.change(screen.getByLabelText("نوع حضور"), {
+      target: { value: "Remote" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "اعمال فیلترها" }));
     expect(
       screen.getAllByRole("button", { name: /استارتاپ هوش‌نو/ }),
     ).toHaveLength(1);
     fireEvent.change(screen.getByLabelText("جستجوی فرصت‌ها"), {
       target: { value: "not-found" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "اعمال فیلترها" }));
     expect(
       screen.getByText("هیچ شغلی با این مشخصات یافت نشد."),
     ).toBeInTheDocument();
   });
   it("removes filter chips", () => {
     render(<JobsView />);
-    fireEvent.click(screen.getByRole("button", { name: "حذف فیلتر جونیور" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "حذف فیلتر فرانت‌اند" }),
+      screen.getByRole("button", { name: "حذف جونیور / تازه‌کار" }),
     );
+    fireEvent.click(screen.getByRole("button", { name: "حذف نقش: Frontend" }));
     expect(screen.getByText("بدون محدودیت")).toBeInTheDocument();
   });
   it("keeps authenticated API failures visible instead of supplying samples", async () => {
@@ -159,9 +264,10 @@ describe("Reference job discovery", () => {
         expect.stringContaining("page=2"),
       ),
     );
-    fireEvent.change(screen.getByLabelText("شهر و نوع حضور"), {
-      target: { value: "remote" },
+    fireEvent.change(screen.getByLabelText("نوع حضور"), {
+      target: { value: "Remote" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "اعمال فیلترها" }));
     await waitFor(() =>
       expect(apiClient.get).toHaveBeenCalledWith(
         expect.stringContaining("workType=Remote"),

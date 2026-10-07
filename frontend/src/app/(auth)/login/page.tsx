@@ -59,7 +59,7 @@ export default function LoginPage() {
             {error}
           </p>
         )}
-        <Button type="submit" className="w-full" disabled={loading}>
+        <Button type="submit" className="w-full" loading={loading}>
           {loading ? "در حال ورود…" : "ورود به حساب"}
         </Button>
       </form>

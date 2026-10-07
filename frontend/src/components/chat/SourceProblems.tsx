@@ -1,5 +1,6 @@
 import type { DiscoveryIssue } from "@/types/discovery";
 import { sourceNames } from "@/lib/discovery-progress";
+import { taskStageNames } from "./TaskProgress";
 const labels = {
   site: "خطای صفحهٔ سایت",
   provider: "خطای سرویس",
@@ -30,6 +31,7 @@ export function SourceProblems({
       {problems.map((source) => (
         <p key={source.source}>
           <strong>{sourceNames[source.source] ?? source.source}</strong> ·{" "}
+          {source.issue?.stage && <span>مرحله {taskStageNames[source.issue.stage]} · </span>}
           {labels[source.issue?.category ?? "unknown"]}:{" "}
           {source.issue?.message ??
             "دریافت یا بررسی آگهی‌ها کامل نشد؛ علت سمت سایت یا سرویس هنوز مشخص نیست."}

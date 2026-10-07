@@ -111,3 +111,25 @@ Regression checks cover concurrent detail fetches, live candidate publication, c
 The production recheck also found expired temporary backend domains and a CORS origin left pointing to an older frontend hostname. The frontend can now proxy API requests and the authenticated event stream through Runflare's private backend service, using an explicitly empty public API URL. This avoids a second expiring public domain. Public access still requires an active frontend domain; temporary domains are unsuitable for continuous availability.
 
 After deployment on 2026-10-06, the HTTPS frontend API proxy returned HTTP 200. The guest accounting search returned in 30.3 seconds with zero jobs and failures for all four source searches. Direct local probes of the configured router's `/v1/models/web` and `/v1/search` each timed out after eighteen seconds. This failed search is not evidence of improved successful-search latency; an additional successful benchmark is needed after router connectivity is restored.
+
+## Compound Backend/.NET recovery — 2026-10-07
+
+The reported request for ten Backend/.NET vacancies in Tehran stored the literal
+role `بکند دات نت`. Count and city were correct, but model context did not split
+the occupation from its required technology. The recorded run confirmed zero
+vacancies and spent three Jobvision extraction calls on pages that timed out.
+
+Recognized compound titles now become Backend Developer with required .NET in
+validated model context and at discovery query/matching boundaries, including
+previously stored intents. Other constraints and candidate facts are preserved;
+unknown qualifiers are not discarded. Jobvision queries now favor `/jobs/`
+vacancy pages, which its existing local parser can read without model extraction.
+Occupation, technology, city, provenance and closed-posting checks remain strict.
+
+A read-only live provider/domain probe of the exact reported intent confirmed
+two Jobvision vacancies in Tehran, with the first arriving at 4.761 seconds.
+It finished partial in 58.620 seconds; Jobvision used zero model extraction
+calls and had zero timeouts. Empty content and retrieval/extraction failures
+still affected several sources. This measurement does not demonstrate ten
+available vacancies or deployed chat behavior. The safe local result is
+`artifacts/dotnet-recovery-result.json`.

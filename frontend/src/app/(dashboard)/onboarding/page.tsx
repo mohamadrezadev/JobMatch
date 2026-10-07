@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/useAuthStore";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PageLoading, LoadingState } from "@/components/ui/LoadingState";
 import apiClient from "@/lib/api-client";
 
 type Step = 1 | 2 | 3 | 4;
@@ -142,8 +143,23 @@ export default function OnboardingPage() {
 
   const stepsLabel = ["اطلاعات پایه", "تجربه", "مهارت‌ها", "ترجیحات"];
 
+  if (!draftReady)
+    return (
+      <PageLoading
+        title="در حال آماده‌کردن پروفایل…"
+        description="اطلاعاتی که قبلاً وارد کرده‌ای را آماده می‌کنیم."
+        layout="form"
+      />
+    );
   return (
     <div className="mx-auto max-w-xl space-y-6">
+      {saving && (
+        <LoadingState
+          title="در حال ذخیره پروفایل…"
+          description="اطلاعات و ترجیحاتت را ثبت می‌کنیم."
+          compact
+        />
+      )}
       {error && (
         <p role="alert" className="text-rose-500">
           {error}
@@ -345,7 +361,8 @@ export default function OnboardingPage() {
             <Button
               className="w-full"
               onClick={nextStep}
-              disabled={saving || !location.trim()}
+              loading={saving}
+              disabled={!location.trim()}
             >
               {saving ? "در حال ذخیره…" : "ذخیره و کشف فرصت‌ها"}
             </Button>

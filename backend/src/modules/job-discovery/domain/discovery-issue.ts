@@ -2,10 +2,11 @@ export interface DiscoveryIssue {
   category: "site" | "provider" | "extraction" | "timeout" | "unknown";
   message: string;
   retryable: boolean;
+  stage?: "search" | "fetch" | "extract" | "filter" | "validate";
 }
 
 // Public task summaries, never provider bodies or internal model reasoning.
-export function discoveryIssue(code: string): DiscoveryIssue {
+function issueDetails(code: string): DiscoveryIssue {
   if (code.startsWith("PAGE_"))
     return {
       category: "site",
@@ -63,6 +64,14 @@ export function discoveryIssue(code: string): DiscoveryIssue {
     retryable: true,
     message: "بررسی این منبع کامل نشد؛ علت سمت سایت یا سرویس هنوز مشخص نیست.",
   };
+}
+
+export function discoveryIssue(code: string): DiscoveryIssue {
+  const stage = /^SEARCH_|JOB_SEARCH_/.test(code) ? "search"
+    : /^EXTRACTION_/.test(code) ? "extract"
+    : /^FETCH_|^PAGE_|JOB_FETCH_/.test(code) ? "fetch"
+    : code === "SOURCE_REJECTED" ? "validate" : undefined;
+  return { ...issueDetails(code), ...(stage ? { stage } : {}) };
 }
 
 export const publicSource = (report: {

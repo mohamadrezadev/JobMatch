@@ -1,4 +1,5 @@
 "use client";
+import { LoadingState, LoadingSpinner } from "@/components/ui/LoadingState";
 import { useEffect } from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/stores/useAuthStore";
@@ -40,7 +41,11 @@ export function DiscoveryPanel({
           disabled={discovery.pending}
           className="rounded-lg bg-brand-500/10 px-3 py-2 text-[10px] font-bold text-brand-500 disabled:opacity-40"
         >
-          <Icon name="magnifying-glass" className="ml-1" />
+          {discovery.pending ? (
+            <LoadingSpinner className="ml-1 h-3 w-3" />
+          ) : (
+            <Icon name="magnifying-glass" className="ml-1" />
+          )}
           {discovery.pending
             ? "در حال جستجو…"
             : result
@@ -49,9 +54,11 @@ export function DiscoveryPanel({
         </button>
       </div>
       {discovery.pending && (
-        <p role="status" className="text-xs text-brand-500">
-          در حال بررسی آگهی‌ها در سایت‌های کاریابی ایرانی…
-        </p>
+        <LoadingState
+          title="در حال بررسی آگهی‌ها در سایت‌های کاریابی ایرانی…"
+          description="نتیجه بررسی منابع پس از دریافت نمایش داده می‌شود."
+          compact
+        />
       )}
       {discovery.error && (
         <p

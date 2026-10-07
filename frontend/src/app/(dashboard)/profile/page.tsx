@@ -3,6 +3,7 @@ import { useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { PageLoading, LoadingState } from "@/components/ui/LoadingState";
 import { Icon } from "@/components/pathly/Icon";
 import {
   WorkspaceHeading,
@@ -150,6 +151,14 @@ export default function ProfilePage() {
     setForm((previous) => ({ ...previous, [field]: value }));
     setSaved(false);
   }
+  if (fetching)
+    return (
+      <PageLoading
+        title="در حال دریافت اطلاعات…"
+        description="پروفایل و مهارت‌های ثبت‌شده‌ات را دریافت می‌کنیم."
+        layout="form"
+      />
+    );
   return (
     <div className="mx-auto max-w-6xl space-y-7">
       <WorkspaceHeading
@@ -165,10 +174,12 @@ export default function ProfilePage() {
           </Link>
         }
       />
-      {fetching && (
-        <p role="status" className="text-xs text-slate-500">
-          در حال دریافت اطلاعات…
-        </p>
+      {loading && (
+        <LoadingState
+          title="در حال ثبت تغییرات پروفایل…"
+          description="پس از دریافت پاسخ، نتیجه ذخیره نمایش داده می‌شود."
+          compact
+        />
       )}
       {error && (
         <div
@@ -419,7 +430,7 @@ export default function ProfilePage() {
                 ? "تغییرات پروفایل ذخیره شد."
                 : "اطلاعاتت را می‌توانی هر زمان ویرایش کنی."}
             </p>
-            <Button type="submit" disabled={loading || fetching}>
+            <Button type="submit" loading={loading} disabled={fetching}>
               {loading ? "در حال ذخیره…" : saved ? "ذخیره شد" : "ذخیره پروفایل"}
             </Button>
           </div>

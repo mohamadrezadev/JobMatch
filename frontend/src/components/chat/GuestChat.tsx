@@ -1,4 +1,6 @@
 "use client";
+import { ChatMessage } from "./ChatMessage";
+import { LoadingState, LoadingSpinner } from "@/components/ui/LoadingState";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { BrandLogo } from "@/components/ui/BrandLogo";
@@ -225,49 +227,30 @@ export function GuestChat() {
         aria-live="polite"
         className="max-h-[400px] min-h-[240px] flex-1 space-y-4 overflow-y-auto p-5 text-sm leading-7"
       >
-        <div className="flex items-start gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-500/10 text-brand-500">
-            <Icon name="robot" />
-          </div>
-          <div className="rounded-2xl rounded-tr-none bg-slate-100 p-4 dark:bg-dark-card">
-            <p className="font-bold">
-              سلام! دنبال چه تغییری در مسیر شغلی‌ات هستی؟
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              از نقش دلخواه، مهارت‌ها یا شرایط کارت بگو؛ با هم درخواست شغلی‌ات
-              را روشن می‌کنیم.
-            </p>
-          </div>
-        </div>
+        <ChatMessage role="assistant">
+          <p className="font-bold">
+            سلام! دنبال چه تغییری در مسیر شغلی‌ات هستی؟
+          </p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            از نقش دلخواه، مهارت‌ها یا شرایط کارت بگو؛ با هم درخواست شغلی‌ات را
+            روشن می‌کنیم.
+          </p>
+        </ChatMessage>
         {chat?.messages.map((message) => (
-          <article
+          <ChatMessage
             key={message.id}
-            aria-label={message.role === "user" ? "پیام شما" : "پاسخ دستیار"}
-            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-          >
-            <p
-              dir="auto"
-              className={`max-w-[90%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-xs leading-6 ${message.role === "user" ? "rounded-tl-none bg-brand-500 text-white" : "rounded-tr-none bg-slate-100 dark:bg-dark-card"}`}
-            >
-              {message.content}
-            </p>
-          </article>
+            role={message.role === "user" ? "user" : "assistant"}
+            content={message.content}
+          />
         ))}
         {loading && (
-          <p role="status" className="text-xs text-slate-400">
-            در حال اتصال به گفتگو…
-          </p>
+          <LoadingState
+            title="در حال اتصال به گفتگو…"
+            description="گفتگو و پیام‌های قبلی‌ات را آماده می‌کنیم."
+            compact
+          />
         )}
-        {pending && (
-          <article aria-label="پیام در حال ارسال" className="flex justify-end">
-            <p
-              dir="auto"
-              className="max-w-[90%] whitespace-pre-wrap rounded-2xl bg-brand-500 px-4 py-3 text-xs text-white"
-            >
-              {submitted}
-            </p>
-          </article>
-        )}
+        {pending && <ChatMessage role="user" content={submitted} pending />}
         {chat?.discovery && (
           <section aria-label="نتایج جستجوی مهمان" className="space-y-3">
             <SourceProblems sources={chat.discovery.sources} />
@@ -332,20 +315,30 @@ export function GuestChat() {
       {pending && (
         <section
           aria-label="فعالیت اجرای درخواست"
-          className="mx-5 my-3 max-h-48 shrink-0 space-y-2 overflow-y-auto rounded-xl bg-brand-500/5 p-3 text-xs"
+          className="ml-5 mr-auto my-3 max-h-48 w-[85%] shrink-0 space-y-2 overflow-y-auto rounded-2xl border border-brand-500/15 bg-brand-500/5 p-4 text-xs"
         >
+          <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+            فعالیت دستیار کارمچ
+          </p>
           <p
             role="status"
             aria-live="polite"
-            className="font-semibold text-brand-500"
+            className="flex items-center gap-2 font-semibold text-brand-600 dark:text-brand-200"
           >
+            <LoadingSpinner className="h-4 w-4" />
             {progressLabel(activity)}
           </p>
           {targetLabel && activity?.type !== "agent.started" && (
             <p>{targetLabel}</p>
           )}
           {sources.map((source) => (
-            <p key={source.source}>
+            <p
+              key={source.source}
+              className="flex flex-wrap items-center gap-1.5"
+            >
+              {!source.finished && (
+                <LoadingSpinner className="h-3 w-3 text-brand-500" />
+              )}
               {sourceNames[source.source] ?? source.source}:{" "}
               {source.finished
                 ? source.failed

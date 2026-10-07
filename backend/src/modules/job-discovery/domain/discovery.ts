@@ -1,4 +1,5 @@
 import { JobSearchIntent } from "../../chat/domain/conversation";
+import { canonicalSearchIntent } from "../../chat/domain/canonical-search-intent";
 import {
   equivalentOccupationTitles,
   matchesOccupationTitle,
@@ -76,6 +77,7 @@ export function canonicalUrl(value: string) {
   return url.toString();
 }
 export function queryRoundsFor(intent: JobSearchIntent): string[][] {
+  intent = canonicalSearchIntent(intent);
   const variants = intent.targetRoles.map((role) => {
     const seen = new Set<string>();
     return equivalentOccupationTitles(role)
@@ -107,6 +109,7 @@ export function queryFor(
   intent: JobSearchIntent,
   queryTitles?: string[],
 ) {
+  intent = canonicalSearchIntent(intent);
   const safe = (value: string) =>
     value
       .replace(/[\r\n"<>]/g, " ")
@@ -137,7 +140,8 @@ export function queryFor(
       ],
   );
   // Preferred skills rank results later; do not make them mandatory search terms.
-  return `site:${source} (${titles.join(" OR ")}) ${(intent.requiredSkills ?? []).map(safe).join(" ")} استخدام ${(work ?? []).join(" OR ")} ${(intent.locations ?? []).map(safe).join(" ")}`.trim();
+  const searchScope = source === "jobvision.ir" ? `${source}/jobs/` : source;
+  return `site:${searchScope} (${titles.join(" OR ")}) ${(intent.requiredSkills ?? []).map(safe).join(" ")} استخدام ${(work ?? []).join(" OR ")} ${(intent.locations ?? []).map(safe).join(" ")}`.trim();
 }
 export function normalizedExperience(value: string | null | undefined) {
   const text = normalizeText(value ?? "");
@@ -160,6 +164,7 @@ export function filterAndRank(
   intent: JobSearchIntent,
   rankingExperienceLevel?: string,
 ) {
+  intent = canonicalSearchIntent(intent);
   // Existing conversation JSON can predate requiredSkills. Preserve the same
   // conjunction for those stored Backend/.NET requests without a DB migration.
   const compoundDotnet =

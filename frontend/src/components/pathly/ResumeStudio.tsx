@@ -13,6 +13,11 @@ import { DemoNotice } from "./DemoNotice";
 import { recordEvent } from "@/lib/analytics";
 import { WorkspaceHeading, accountField } from "./AccountWorkspace";
 import { resumeGenerationError } from "@/lib/resume-generation-error";
+import {
+  LoadingState,
+  LoadingSpinner,
+  PageLoading,
+} from "@/components/ui/LoadingState";
 
 interface SavedResume {
   id: string;
@@ -40,6 +45,8 @@ export function ResumeStudio() {
   const { user, isAuthenticated, isProfileComplete } = useAuthStore();
   const { owner, draft, initialize, update } = useResumeDraftStore();
   const [busy, setBusy] = useState(false);
+  const [fetching, setFetching] = useState(isAuthenticated);
+  const [busyLabel, setBusyLabel] = useState("");
   const [notice, setNotice] = useState("");
   const [jobId, setJobId] = useState("");
   const [resumeId, setResumeId] = useState("");
@@ -127,8 +134,13 @@ export function ResumeStudio() {
       user ? user.firstName + " " + user.lastName : "",
       user?.email,
     );
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      setFetching(false);
+      setBusy(false);
+      return;
+    }
     let alive = true;
+    setFetching(true);
     setBusy(true);
     Promise.allSettled([
       apiClient.get("/api/resumes/base"),
@@ -148,6 +160,7 @@ export function ResumeStudio() {
         if (saved) restore(saved);
       }
       setBusy(false);
+      setFetching(false);
     });
     return () => {
       alive = false;
@@ -191,6 +204,7 @@ export function ResumeStudio() {
   async function saveBase() {
     const ownerAtStart = currentOwner;
     setBusy(true);
+    setBusyLabel("در حال ذخیره رزومه پایه…");
     setNotice("");
     try {
       const response = await apiClient.put("/api/resumes/base", {
@@ -212,6 +226,7 @@ export function ResumeStudio() {
     if (!selectedProposalId) return;
     const ownerAtStart = currentOwner;
     setBusy(true);
+    setBusyLabel("در حال ثبت نسخه مخصوص آگهی…");
     setNotice("");
     try {
       const response = await apiClient.post(
@@ -257,6 +272,7 @@ export function ResumeStudio() {
     }
     const generationOwner = currentOwner;
     setBusy(true);
+    setBusyLabel("در حال ساخت پیشنهاد رزومه…");
     try {
       const response = await apiClient.post<
         ResumeProposal | { success: boolean; data: ResumeProposal }
@@ -304,6 +320,7 @@ export function ResumeStudio() {
   async function saveEdits() {
     const ownerAtStart = currentOwner;
     setBusy(true);
+    setBusyLabel("در حال ذخیره ویرایش رزومه…");
     setNotice("");
     try {
       if (
@@ -323,6 +340,7 @@ export function ResumeStudio() {
       return;
     }
     setBusy(true);
+    setBusyLabel("در حال آماده‌کردن و دانلود PDF…");
     setNotice("");
     const ownerAtStart = currentOwner;
     try {
@@ -350,8 +368,23 @@ export function ResumeStudio() {
   const inputClass = accountField;
   const proposal = proposals.find((row) => row.id === selectedProposalId);
   const current = resumes.find((row) => row.id === resumeId);
+  if (fetching)
+    return (
+      <PageLoading
+        title="در حال دریافت رزومه‌ها…"
+        description="رزومه پایه و نسخه‌های ذخیره‌شده‌ات را دریافت می‌کنیم."
+        layout="form"
+      />
+    );
   return (
     <section className="mx-auto max-w-6xl space-y-7">
+      {busy && (
+        <LoadingState
+          title={busyLabel || "در حال پردازش رزومه…"}
+          description="نتیجه پس از دریافت پاسخ نمایش داده می‌شود؛ این صفحه را باز نگه دار."
+          compact
+        />
+      )}
       <WorkspaceHeading
         eyebrow="حساب من / رزومه‌ساز"
         title="رزومه‌ای برای فرصت بعدی تو"
@@ -480,9 +513,15 @@ export function ResumeStudio() {
             }
             className="flex items-center gap-2 rounded-xl bg-brand-500 px-4 py-3 text-xs font-bold text-white transition-all hover:bg-brand-600 disabled:opacity-40"
           >
-            <Icon name="wand-magic-sparkles" />
+            {busy && busyLabel === "در حال ساخت پیشنهاد رزومه…" ? (
+              <LoadingSpinner className="h-4 w-4" />
+            ) : (
+              <Icon name="wand-magic-sparkles" />
+            )}
             <span>
-              {busy ? "در حال پردازش…" : "سفارشی‌سازی برای شغل منتخب"}
+              {busy && busyLabel === "در حال ساخت پیشنهاد رزومه…"
+                ? "در حال ساخت پیشنهاد…"
+                : "سفارشی‌سازی برای شغل منتخب"}
             </span>
           </button>
           <button
@@ -493,7 +532,11 @@ export function ResumeStudio() {
             }
             className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 dark:border-dark-border dark:bg-dark-surface dark:text-slate-200 disabled:opacity-40"
           >
-            <Icon name="download" />
+            {busy && busyLabel === "در حال آماده‌کردن و دانلود PDF…" ? (
+              <LoadingSpinner className="h-4 w-4" />
+            ) : (
+              <Icon name="download" />
+            )}
             <span>دانلود PDF</span>
           </button>
           {currentOwner !== "demo" && (

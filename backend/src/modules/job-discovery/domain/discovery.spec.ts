@@ -12,6 +12,28 @@ const html = (overrides = {}) =>
   `<script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting", title: "Backend Node.js Developer", hiringOrganization: { name: "شرکت تست" }, jobLocationType: "TELECOMMUTE", jobLocation: { address: { addressLocality: "تهران" } }, baseSalary: { currency: "IRR", value: { minValue: 250000000, maxValue: 350000000, unitText: "MONTH" } }, skills: ["Node.js"], description: "<p>توسعه بک‌اند</p>", ...overrides })}</script>`;
 const url = "https://jobvision.ir/jobs/1";
 describe("Iranian job rules", () => {
+  it("recovers stored compound Persian titles in both search queries and strict filtering", () => {
+    const intent = {
+      targetRoles: ["بکند دات نت"],
+      requestedCount: 10,
+      locations: ["Tehran"],
+    };
+    const query = queryFor("jobvision.ir", intent, queryRoundsFor(intent)[0]);
+    expect(query).toContain(
+      'site:jobvision.ir/jobs/ ("Backend Developer") .NET',
+    );
+    const matching = normalizeJob(
+      html({ title: "Senior .NET Backend Developer", skills: [".NET"] }),
+      url,
+    )!;
+    const wrongTechnology = normalizeJob(html(), url)!;
+    const wrongRole = { ...matching, title: "Frontend React Developer" };
+    const wrongCity = { ...matching, location: "Shiraz" };
+    expect(
+      filterAndRank([matching, wrongTechnology, wrongRole, wrongCity], intent),
+    ).toEqual([matching]);
+    expect(intent.targetRoles).toEqual(["بکند دات نت"]);
+  });
   it("plans original-first distinct title rounds and preserves unknown occupations", () => {
     const intent = {
       targetRoles: ["کارشناس منابع انسانی"],

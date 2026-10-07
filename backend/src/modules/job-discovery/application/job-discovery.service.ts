@@ -14,7 +14,8 @@ import { publicSource } from "../domain/discovery-issue";
 
 export interface LiveDiscovery {
   publish(type: string, data: Record<string, unknown>): Promise<void>;
-  contextVersion: number;
+  // Legacy HTTP searches use the current server context without a run snapshot.
+  contextVersion?: number;
 }
 const publicSources = (sources: SourceReport[]) => sources.map(publicSource);
 // Keep the existing HTTP contract; measurements are stored internally only.
@@ -42,7 +43,7 @@ export class JobDiscoveryService {
   async search(userId: string, conversationId: string, live?: LiveDiscovery) {
     const { intent, version, rankingExperienceLevel } =
       await this.repository.context(userId, conversationId);
-    if (live && version !== live.contextVersion)
+    if (live?.contextVersion !== undefined && version !== live.contextVersion)
       throw new DiscoveryError("CONTEXT_CHANGED", 409);
     if (!intent.targetRoles.length)
       throw new DiscoveryError("SEARCH_ROLE_REQUIRED", 400);

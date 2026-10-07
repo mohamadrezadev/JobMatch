@@ -15,10 +15,11 @@ import { PrismaGuestConversationRepository } from "./infrastructure/prisma-guest
 import { JobDiscoveryModule } from "../job-discovery/job-discovery.module";
 import { AgentSearchService } from "../job-discovery/application/agent-search.service";
 import { GuestDiscoveryService } from "./application/guest-discovery.service";
+import { ChatAdmissionModule } from "../chat-admission/chat-admission.module";
 
 @Module({
   exports: [ChatService],
-  imports: [PrismaModule, JobDiscoveryModule],
+  imports: [PrismaModule, JobDiscoveryModule, ChatAdmissionModule],
   controllers: [ChatController, GuestChatController],
   providers: [
     {

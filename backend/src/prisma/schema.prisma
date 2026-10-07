@@ -331,3 +331,13 @@ model AnalyticsEvent {
   @@index([name, createdAt])
   @@map("analytics_events")
 }
+
+model ChatRequestGate {
+  key           String   @id
+  leaseId       String?
+  leaseUntil    DateTime
+  nextAllowedAt DateTime
+
+  @@index([nextAllowedAt])
+  @@map("chat_request_gates")
+}

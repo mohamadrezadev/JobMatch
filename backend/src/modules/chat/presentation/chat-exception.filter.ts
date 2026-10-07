@@ -5,6 +5,7 @@ import {
   HttpException,
 } from "@nestjs/common";
 import { Response } from "express";
+import { ChatAdmissionError } from "../../chat-admission/chat-admission.service";
 import {
   GuestLimitReached,
   GuestSessionUnavailable,
@@ -15,6 +16,9 @@ import {
 } from "../domain/conversation";
 
 export function chatFailure(error: unknown) {
+  if (error instanceof ChatAdmissionError) {
+    return { status: error.getStatus(), ...(error.getResponse() as { code: string; message: string; retryAfterSeconds: number; nextAllowedAt: string; active: boolean; activeRunId: string | null }) };
+  }
   const status =
     error instanceof GuestLimitReached ||
     error instanceof GuestSessionUnavailable
@@ -58,11 +62,11 @@ export function chatFailure(error: unknown) {
 @Catch()
 export class ChatExceptionFilter implements ExceptionFilter {
   catch(error: unknown, host: ArgumentsHost) {
-    const { status, code, message } = chatFailure(error);
-    host
-      .switchToHttp()
-      .getResponse<Response>()
+    const { status, ...details } = chatFailure(error);
+    const response = host.switchToHttp().getResponse<Response>();
+    if ("retryAfterSeconds" in details) response.setHeader("Retry-After", String(details.retryAfterSeconds));
+    response
       .status(status)
-      .json({ success: false, error: { code, message } });
+      .json({ success: false, error: details });
   }
 }

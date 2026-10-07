@@ -40,6 +40,10 @@ export class CreateRunDto {
 export class ChatRunController {
   private readonly limits = new Map<string, { count: number; until: number }>();
   constructor(private readonly runs: ChatRunService) {}
+  @Get("availability")
+  async availability(@CurrentUser() user: { sub: string }) {
+    return { success: true, data: await this.runs.availability(user.sub) };
+  }
   @Post("runs")
   @HttpCode(202)
   async create(

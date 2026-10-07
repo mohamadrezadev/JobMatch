@@ -1,4 +1,9 @@
 "use client";
+import {
+  LoadingState,
+  LoadingSpinner,
+  PageLoading,
+} from "@/components/ui/LoadingState";
 import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { GuestChat } from "@/components/chat/GuestChat";
 import apiClient from "@/lib/api-client";
@@ -10,6 +15,7 @@ import { DiscoveryPanel } from "./DiscoveryPanel";
 import { useDiscoveryStore } from "@/stores/useDiscoveryStore";
 import { useChatRunStore } from "@/stores/useChatRunStore";
 import { RunActivity } from "./RunActivity";
+import { ChatMessage } from "./ChatMessage";
 import { discoveryCountHint } from "@/lib/discovery-progress";
 import { runFinished } from "@/types/chat-run";
 import Link from "next/link";
@@ -119,9 +125,11 @@ function AuthenticatedChat() {
   }
   if (!hydrated || !isAuthenticated || !user)
     return (
-      <p role="status" className="text-xs text-slate-400">
-        در حال بررسی ورود…
-      </p>
+      <PageLoading
+        title="در حال بررسی ورود…"
+        description="گفتگوی شخصی‌ات را آماده می‌کنیم."
+        layout="chat"
+      />
     );
   const context = chat.active?.context.searchContext;
   const ready = Boolean(context?.targetRoles.length);
@@ -137,8 +145,16 @@ function AuthenticatedChat() {
               دستیار هوشمند شغلی کارمچ
             </h1>
             <p className="flex items-center gap-1 text-[10px] font-medium text-emerald-500">
-              <span className="h-1.5 w-1.5 animate-ping rounded-full bg-emerald-500" />
-              فعال و آماده تحلیل
+              {runs.pending || chat.pending || claiming ? (
+                <LoadingSpinner className="h-3 w-3" />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              )}
+              {runs.pending
+                ? "در حال بررسی درخواست"
+                : chat.pending || claiming
+                  ? "در حال آماده‌کردن گفتگو"
+                  : "فعال و آماده تحلیل"}
             </p>
           </div>
         </div>
@@ -220,9 +236,12 @@ function AuthenticatedChat() {
         </div>
       )}
       {claiming && (
-        <p role="status" className="p-3 text-xs text-brand-500">
-          در حال آماده‌کردن گفتگو…
-        </p>
+        <LoadingState
+          title="در حال آماده‌کردن گفتگو…"
+          description="تاریخچه گفتگوی مهمان را به حسابت منتقل می‌کنیم."
+          compact
+          className="m-3"
+        />
       )}
       {chat.error && (
         <p role="alert" className="bg-rose-500/10 p-3 text-xs text-rose-500">
@@ -264,22 +283,17 @@ function AuthenticatedChat() {
         className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-xs leading-relaxed"
       >
         {!chat.active?.messages.length && (
-          <div className="flex animate-slide-in items-start gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-500/20 text-brand-500">
-              <Icon name="robot" />
-            </div>
-            <div className="max-w-[85%] space-y-2 rounded-2xl rounded-tr-none border border-slate-200/50 bg-slate-100 p-4 text-slate-800 dark:border-dark-border dark:bg-dark-card dark:text-slate-200">
-              <p className="font-bold text-brand-500">
-                سلام {user.firstName}! من دستیار شغلی هوشمند کارمچ هستم.
-              </p>
-              <p>چگونه می‌توانم امروز به شما کمک کنم؟ می‌توانید بگویید:</p>
-              <ul className="list-inside list-disc space-y-1 text-slate-500 dark:text-slate-400">
-                <li>«دنبال شغل حسابداری توی تهران می‌گردم»</li>
-                <li>«فقط دورکار، حداقل ۲۰ میلیون»</li>
-                <li>«کار مدیر محصول دورکار می‌خوام»</li>
-              </ul>
-            </div>
-          </div>
+          <ChatMessage role="assistant">
+            <p className="font-bold text-brand-500">
+              سلام {user.firstName}! من دستیار شغلی هوشمند کارمچ هستم.
+            </p>
+            <p>چگونه می‌توانم امروز به شما کمک کنم؟ می‌توانید بگویید:</p>
+            <ul className="list-inside list-disc space-y-1 text-slate-500 dark:text-slate-400">
+              <li>«دنبال شغل حسابداری توی تهران می‌گردم»</li>
+              <li>«فقط دورکار، حداقل ۲۰ میلیون»</li>
+              <li>«کار مدیر محصول دورکار می‌خوام»</li>
+            </ul>
+          </ChatMessage>
         )}
         {chat.active?.messages
           .filter(
@@ -292,26 +306,10 @@ function AuthenticatedChat() {
           )
           .map((message) => (
             <Fragment key={message.id}>
-              <article
-                key={message.id}
-                aria-label={
-                  message.role === "user" ? "پیام شما" : "پاسخ دستیار"
-                }
-                className={`flex animate-slide-in items-start gap-3 ${message.role === "user" ? "justify-end" : ""}`}
-              >
-                {message.role !== "user" && (
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-500/20 text-xs text-brand-500">
-                    <Icon name="robot" />
-                  </div>
-                )}
-                <div
-                  className={`max-w-[80%] rounded-2xl p-3 ${message.role === "user" ? "rounded-tl-none bg-brand-500 text-white" : "rounded-tr-none border border-slate-200/50 bg-slate-100 text-slate-800 dark:border-dark-border dark:bg-dark-card dark:text-slate-200"}`}
-                >
-                  <p dir="auto" className="whitespace-pre-wrap break-words">
-                    {message.content}
-                  </p>
-                </div>
-              </article>
+              <ChatMessage
+                role={message.role === "user" ? "user" : "assistant"}
+                content={message.content}
+              />
               {runs.runs
                 .filter((run) => run.userMessageId === message.id)
                 .map((run) => (
@@ -320,30 +318,22 @@ function AuthenticatedChat() {
             </Fragment>
           ))}
         {runs.pendingMessage && (
-          <p
-            dir="auto"
-            className="mr-auto max-w-[80%] rounded-2xl bg-brand-500 p-3 text-white"
-          >
-            {runs.pendingMessage}
-          </p>
+          <ChatMessage role="user" content={runs.pendingMessage} pending />
         )}
         {runs.runs
           .filter((run) => !run.userMessageId)
           .map((run) => (
             <div key={run.runId} className="space-y-3">
-              <p
-                dir="auto"
-                className="mr-auto max-w-[80%] rounded-2xl bg-brand-500 p-3 text-white"
-              >
-                {run.message}
-              </p>
+              <ChatMessage role="user" content={run.message} />
               <RunActivity run={run} />
             </div>
           ))}
         {chat.pending && (
-          <p role="status" className="text-brand-500">
-            در حال پردازش…
-          </p>
+          <LoadingState
+            title="در حال دریافت گفتگو…"
+            description="پیام‌ها و تاریخچه را دریافت می‌کنیم."
+            compact
+          />
         )}
         <div ref={end} />
       </div>

@@ -11,6 +11,8 @@ import {
   discoveryTargetLabel,
 } from "@/lib/discovery-progress";
 import { SourceProblems } from "./SourceProblems";
+import { LoadingSpinner } from "@/components/ui/LoadingState";
+import { TaskProgress } from "./TaskProgress";
 
 const agentReasons: Record<string, string> = {
   INITIAL_SEARCH: "شروع جستجو در منابع منتخب",
@@ -38,14 +40,18 @@ export function RunActivity({ run }: { run: ChatRunView }) {
   return (
     <section
       aria-label="فعالیت اجرای درخواست"
-      className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-dark-border dark:bg-dark-card"
+      className="mr-auto max-w-[90%] space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-dark-border dark:bg-dark-card"
     >
+      <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+        فعالیت دستیار کارمچ
+      </p>
       <button
         type="button"
         aria-expanded={showDetails}
         onClick={() => setExpanded(!expanded)}
-        className="text-right text-xs font-semibold text-brand-500"
+        className="inline-flex items-center gap-2 text-right text-xs font-semibold text-brand-600 dark:text-brand-200"
       >
+        {!finished && <LoadingSpinner className="h-4 w-4" />}
         {run.status === "FAILED"
           ? "! عملیات کامل نشد"
           : run.status === "PARTIAL"
@@ -67,6 +73,7 @@ export function RunActivity({ run }: { run: ChatRunView }) {
           aria-atomic="false"
           className="space-y-2 text-xs text-slate-600 dark:text-slate-300"
         >
+          <TaskProgress events={run.events} finished={finished} sources={run.sources} />
           {context ? (
             <p>
               ✓ درخواست مشخص شد:{" "}
@@ -104,6 +111,7 @@ export function RunActivity({ run }: { run: ChatRunView }) {
           {cached && <p>✓ نتایج ذخیره‌شده همین ترجیحات بازیابی شد</p>}
           {run.events
             .filter((event) => event.type.startsWith("agent."))
+            .filter((event, index, all) => !all.slice(index + 1).some(item => item.type === event.type))
             .map((event) => {
               const data = event.data;
               if (
@@ -173,7 +181,13 @@ export function RunActivity({ run }: { run: ChatRunView }) {
               !finished &&
               ["source.started", "source.progress"].includes(last?.type ?? "");
             return (
-              <p key={source.source}>
+              <p
+                key={source.source}
+                className="flex flex-wrap items-center gap-1.5"
+              >
+                {running && (
+                  <LoadingSpinner className="h-3 w-3 text-brand-500" />
+                )}
                 <span>{sourceNames[source.source] ?? source.source}</span> —{" "}
                 {running
                   ? `◌ ${last?.type === "source.progress" ? (stageLabels[String(last.data.stage)] ?? "در حال بررسی آگهی‌ها") : "در حال جستجو"}`
