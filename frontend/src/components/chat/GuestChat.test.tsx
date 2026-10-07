@@ -43,6 +43,19 @@ describe("Guest conversation", () => {
       data: { data: empty },
     });
   });
+  it("offers complete searchable examples with a role, location, and count", async () => {
+    render(<GuestChat />);
+    const suggestion = await screen.findByRole("button", {
+      name: "۱ آگهی برنامه‌نویس بک‌اند .NET در تهران پیدا کن",
+    });
+    fireEvent.click(suggestion);
+    expect(screen.getByLabelText("پیام شما")).toHaveValue(
+      "۱ آگهی برنامه‌نویس بک‌اند .NET در تهران پیدا کن",
+    );
+    expect(
+      screen.queryByText("فقط حضوری، حداقل حقوق ۳۰ میلیون"),
+    ).not.toBeInTheDocument();
+  });
   it("keeps the draft after failure and successfully retries", async () => {
     (guestChatClient.post as jest.Mock)
       .mockRejectedValueOnce(new Error("offline"))

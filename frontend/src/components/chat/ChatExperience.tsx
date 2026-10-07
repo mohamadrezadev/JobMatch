@@ -20,6 +20,7 @@ import { discoveryCountHint } from "@/lib/discovery-progress";
 import { runFinished } from "@/types/chat-run";
 import Link from "next/link";
 import { useChatWait, chatRequestHint } from "@/lib/chat-availability";
+import { chatSearchExample, chatSearchSuggestions } from "@/lib/chat-suggestions";
 
 const workLabels = { Remote: "دورکار", Hybrid: "هیبرید", OnSite: "حضوری" };
 export default function ChatExperience() {
@@ -300,12 +301,22 @@ function AuthenticatedChat() {
             <p className="font-bold text-brand-500">
               سلام {user.firstName}! من دستیار شغلی هوشمند کارمچ هستم.
             </p>
-            <p>چگونه می‌توانم امروز به شما کمک کنم؟ می‌توانید بگویید:</p>
-            <ul className="list-inside list-disc space-y-1 text-slate-500 dark:text-slate-400">
-              <li>«دنبال شغل حسابداری توی تهران می‌گردم»</li>
-              <li>«فقط دورکار، حداقل ۲۰ میلیون»</li>
-              <li>«کار مدیر محصول دورکار می‌خوام»</li>
-            </ul>
+            <p>
+              برای جستجوی دقیق، تعداد، عنوان شغل و شهر را مشخص کنید. یکی از
+              نمونه‌های زیر را می‌توانید انتخاب و ویرایش کنید:
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {chatSearchSuggestions.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => setDraft(prompt)}
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-[10px] text-slate-500 transition-colors hover:border-brand-500 hover:text-brand-500 dark:border-dark-border dark:text-slate-400"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
           </ChatMessage>
         )}
         {chat.active?.messages
@@ -425,7 +436,7 @@ function AuthenticatedChat() {
             disabled={
               chat.pending || runs.pending || claiming || Boolean(claimError)
             }
-            placeholder="پیام خود را بنویسید (مثلاً: فقط موقعیت‌های دورکاری با حقوق بالای ۲۲ میلیون)..."
+            placeholder={`مثلاً: ${chatSearchExample}`}
             className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-800 focus:border-brand-500 focus:outline-none dark:border-dark-border dark:bg-dark-surface dark:text-white"
           />
           <button

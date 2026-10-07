@@ -25,6 +25,7 @@ import {
   type ChatAvailability,
 } from "@/lib/chat-availability";
 import type { DiscoveryIssue } from "@/types/discovery";
+import { chatSearchExample, chatSearchSuggestions } from "@/lib/chat-suggestions";
 import {
   guestChatClient,
   guestContinuationKey,
@@ -32,11 +33,6 @@ import {
   type GuestChatState,
 } from "@/lib/guest-chat-client";
 
-const prompts = [
-  "دنبال شغل حسابداری توی تهران می‌گردم",
-  "کار مدیر محصول دورکار می‌خوام",
-  "فقط حضوری، حداقل حقوق ۳۰ میلیون",
-];
 export function GuestChat() {
   const [chat, setChat] = useState<GuestChatState | null>(null);
   const [draft, setDraft] = useState("");
@@ -431,7 +427,7 @@ export function GuestChat() {
         )}
       {!chat?.messages.length && (
         <div className="flex flex-wrap gap-2 px-5 pb-4">
-          {prompts.map((prompt) => (
+          {chatSearchSuggestions.map((prompt) => (
             <button
               key={prompt}
               onClick={() => {
@@ -501,7 +497,7 @@ export function GuestChat() {
             onChange={(event) => saveDraft(event.target.value)}
             maxLength={4000}
             disabled={pending}
-            placeholder="عنوان شغلی، شهر و شرایط دلخواهت را بنویس…"
+            placeholder={`مثلاً: ${chatSearchExample}`}
             className="min-w-0 flex-1 resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-6 focus:border-brand-500 focus:outline-none dark:border-dark-border dark:bg-dark-surface"
           />
           <button

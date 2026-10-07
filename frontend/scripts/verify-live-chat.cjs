@@ -20,6 +20,10 @@ class Chat {
       .click();
     await expect(this.input()).toHaveValue("");
   }
+  async chooseSuggestion(text) {
+    await this.page.getByRole("button", { name: text, exact: true }).click();
+    await expect(this.input()).toHaveValue(text);
+  }
   async newConversation() {
     await this.page
       .getByRole("button", { name: "گفتگوی جدید", exact: true })
@@ -356,6 +360,9 @@ module.exports = (async () => {
       }),
     ).toBeVisible();
     await expect(chat.input()).toBeEnabled();
+    await chat.chooseSuggestion(
+      "۱ آگهی برنامه‌نویس بک‌اند .NET در تهران پیدا کن",
+    );
     await chat.send("کار متخصص طراحی خدمات دورکار بالای ۲۰ میلیون می‌خوام");
     await expect(page.getByRole("heading", { name: job.title })).toBeVisible();
     await expect(chat.input()).toBeDisabled();
@@ -433,7 +440,7 @@ module.exports = (async () => {
     );
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: agent summaries, hidden reasoning, Refresh during search, live result before completion, Bearer SSE, reconnect cursor, deduplication, partial failure, retry without duplicate messages, history restoration and mobile layout (browser fixtures).",
+      "PASS: complete search suggestion, agent summaries, hidden reasoning, Refresh during search, live result before completion, Bearer SSE, reconnect cursor, deduplication, partial failure, retry without duplicate messages, history restoration and mobile layout (browser fixtures).",
     );
   } finally {
     await browser.close();

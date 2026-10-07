@@ -5,6 +5,30 @@ describe("Career Copilot extraction", () => {
   const extractor = new ContextService();
   const run = (message: string) => extractor.extract(message, emptyContext());
   it.each([
+    [
+      "۱ آگهی برنامه‌نویس بک‌اند .NET در تهران پیدا کن",
+      "Backend Developer",
+      1,
+    ],
+    ["۱ آگهی حسابدار در تهران پیدا کن", "حسابدار", 1],
+    ["۱ آگهی کارشناس فروش در تهران پیدا کن", "کارشناس فروش", 1],
+  ])(
+    "parses a complete UI search suggestion: %s",
+    (message, role, requestedCount) => {
+      expect(run(message)).toMatchObject({
+        intent: "JOB_SEARCH",
+        understood: true,
+        context: {
+          searchContext: {
+            targetRoles: expect.arrayContaining([role]),
+            locations: ["Tehran"],
+            requestedCount,
+          },
+        },
+      });
+    },
+  );
+  it.each([
     "دنبال شغل حسابداری میگردم توی تهران 5 تا اگهی برام پیدا کن",
     "دنبال شغل حسابداری می‌گردم توی تهران ۵ تا آگهی برام پیدا کن",
     "دنبال شغل حسابداری توی تهران ۵ تا آگهی پیدا کن",
