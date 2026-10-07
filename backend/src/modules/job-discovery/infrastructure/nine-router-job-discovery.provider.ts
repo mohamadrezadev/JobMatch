@@ -9,6 +9,7 @@ import {
   DiscoveryOptions,
   MAX_SOURCE_FETCHES,
 } from "../application/discovery.ports";
+import { JobPageDecisionProvider } from "../application/job-page-decision.port";
 import {
   DiscoveredJob,
   SourceReport,
@@ -88,6 +89,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
     private readonly validator: SourceValidator,
     private readonly sources: string[],
     private readonly extractor?: JobContentExtractor,
+    private readonly decisionProvider?: JobPageDecisionProvider,
   ) {
     super();
   }
@@ -125,7 +127,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
           };
         const observed = () => progress?.sourceObserved?.(report);
         const timed = async <T>(
-          key: "searchMs" | "validationMs" | "fetchMs" | "aiMs",
+          key: "searchMs" | "validationMs" | "fetchMs" | "aiMs" | "v1mMs",
           operation: () => Promise<T>,
         ) => {
           const started = Date.now();
@@ -362,6 +364,42 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                   let job = normalizeJob(page.content, canonicalUrl(page.url));
                   metrics.parseMs += Date.now() - parseStarted;
                   if (!job && this.extractor && !signal.aborted) {
+                    let shouldExtract = true;
+                    if (this.decisionProvider) {
+                      metrics.v1mCalls++;
+                      metrics.v1mPrimaryCalls++;
+                      observed();
+                      const decision = await timed("v1mMs", () =>
+                        this.decisionProvider!.evaluate(
+                          page.content,
+                          canonicalUrl(page.url),
+                          signal,
+                        ),
+                      );
+                      shouldExtract = decision.shouldExtract;
+                      if (decision.mode === "v1m-primary")
+                        metrics.v1mPrimarySuccess++;
+                      else if (decision.mode === "v1m-fallback") {
+                        metrics.v1mPrimaryFailures++;
+                        metrics.v1mFallbackCalls++;
+                        metrics.v1mFallbackSuccess++;
+                      } else {
+                        metrics.v1mPrimaryFailures++;
+                        metrics.v1mFallbackCalls++;
+                        metrics.v1mFallbackFailures++;
+                        metrics.v1mFailOpen++;
+                      }
+                      if (shouldExtract) metrics.v1mAccepted++;
+                      else {
+                        metrics.v1mRejected++;
+                        metrics.aiCallsSaved++;
+                      }
+                      observed();
+                    }
+                    if (!shouldExtract) {
+                      report.rejected++;
+                      return;
+                    }
                     metrics.aiCalls++;
                     observed();
                     job = await timed("aiMs", () =>

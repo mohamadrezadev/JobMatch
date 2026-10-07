@@ -10,6 +10,10 @@ export interface RouterConfig {
   fetchPolicyVerified: boolean;
   searchTimeout: number;
   fetchTimeout: number;
+  // The shared gateway's webfetch providers can hold only one in-flight
+  // request per account; bursts trip a provider-side lock that outlasts our
+  // own retry budget. Serialize fetches to stay under that ceiling.
+  fetchConcurrency?: number;
 }
 export interface FetchedPage {
   content: string;
@@ -17,9 +21,20 @@ export interface FetchedPage {
   finalUrlVerified: boolean;
   links: string[];
 }
+// A shared single-account fetch provider can lock out for 19-30s once it
+// sees repeated failures; hammering it during that window only extends the
+// lockout. Stop sending requests for a cooldown instead.
+const TRANSIENT_FETCH_CODES = /^(FETCH_EMPTY_CONTENT|FETCH_TIMEOUT|FETCH_NETWORK_ERROR|FETCH_HTTP_50[234])$/;
 export class NineRouterClient {
   private readonly logger = new Logger(NineRouterClient.name);
   private readonly http: AxiosInstance;
+  private readonly fetchConcurrency: number;
+  private fetchRunning = 0;
+  private readonly fetchQueue: Array<() => void> = [];
+  private circuitOpenUntil = 0;
+  private consecutiveTransientFailures = 0;
+  private readonly circuitBreakerThreshold = 2;
+  private readonly circuitBreakerCooldownMs = 25000;
   constructor(private readonly config: RouterConfig) {
     this.http = axios.create({
       baseURL: config.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, ""),
@@ -31,6 +46,45 @@ export class NineRouterClient {
         ? { Authorization: `Bearer ${config.apiKey}` }
         : {},
     });
+    this.fetchConcurrency = Math.max(1, config.fetchConcurrency ?? 1);
+  }
+  private acquireFetchSlot(signal: AbortSignal): Promise<void> {
+    if (this.fetchRunning < this.fetchConcurrency) {
+      this.fetchRunning++;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve, reject) => {
+      const grant = () => {
+        signal.removeEventListener("abort", onAbort);
+        this.fetchRunning++;
+        resolve();
+      };
+      const onAbort = () => {
+        const index = this.fetchQueue.indexOf(grant);
+        if (index !== -1) this.fetchQueue.splice(index, 1);
+        reject(Object.assign(new Error("Fetch queue aborted"), { name: "AbortError" }));
+      };
+      this.fetchQueue.push(grant);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+  private releaseFetchSlot() {
+    this.fetchRunning--;
+    this.fetchQueue.shift()?.();
+  }
+  private recordTransientFailure(code: string) {
+    this.consecutiveTransientFailures++;
+    if (this.consecutiveTransientFailures < this.circuitBreakerThreshold)
+      return;
+    this.circuitOpenUntil = Date.now() + this.circuitBreakerCooldownMs;
+    this.consecutiveTransientFailures = 0;
+    this.logger.warn(
+      JSON.stringify({
+        stage: "circuit-open",
+        cooldownMs: this.circuitBreakerCooldownMs,
+        code,
+      }),
+    );
   }
   async ready(signal: AbortSignal) {
     if (!this.config.searchModel)
@@ -94,7 +148,24 @@ export class NineRouterClient {
       );
   }
   async fetch(url: string, signal: AbortSignal): Promise<FetchedPage> {
-    const response = await this.fetchResponse(url, signal);
+    if (Date.now() < this.circuitOpenUntil)
+      throw new DiscoveryError("FETCH_PROVIDER_COOLING_DOWN", 503);
+    await this.acquireFetchSlot(signal);
+    let response: Awaited<ReturnType<typeof this.fetchResponse>>;
+    try {
+      response = await this.fetchResponse(url, signal);
+      this.consecutiveTransientFailures = 0;
+    } catch (error) {
+      if (
+        !signal.aborted &&
+        error instanceof DiscoveryError &&
+        TRANSIENT_FETCH_CODES.test(error.code)
+      )
+        this.recordTransientFailure(error.code);
+      throw error;
+    } finally {
+      this.releaseFetchSlot();
+    }
     const data = response.data;
     if (
       typeof data?.url !== "string" ||

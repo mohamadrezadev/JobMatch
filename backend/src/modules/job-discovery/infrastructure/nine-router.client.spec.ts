@@ -285,6 +285,114 @@ describe("Installed 9Router web API contract", () => {
       links: ["/jobs/2", "https://jobinja.ir/jobs/3", "/jobs/4"],
     });
   });
+  it("serializes concurrent fetches so only one request is in flight by default", async () => {
+    const client = new NineRouterClient({ ...config, fetchModel: "fixture/fetch" });
+    const signal = new AbortController().signal;
+    const started: string[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => (releaseFirst = resolve));
+    const post = jest.spyOn(
+      (client as unknown as { http: AxiosInstance }).http,
+      "post",
+    );
+    post.mockImplementation(async (path: string, body: any) => {
+      started.push(body.url);
+      if (started.length === 1) await firstGate;
+      return {
+        data: {
+          provider: "fixture",
+          url: body.url,
+          final_url: undefined,
+          links: [],
+          content: { format: "html", text: "<h1>Source page</h1>" },
+        },
+      };
+    });
+    const pendingFirst = client.fetch("https://jobvision.ir/jobs/1", signal);
+    const pendingSecond = client.fetch("https://jobvision.ir/jobs/2", signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(started).toEqual(["https://jobvision.ir/jobs/1"]);
+    releaseFirst();
+    await Promise.all([pendingFirst, pendingSecond]);
+    expect(started).toEqual([
+      "https://jobvision.ir/jobs/1",
+      "https://jobvision.ir/jobs/2",
+    ]);
+    post.mockRestore();
+  });
+  it("allows concurrent fetches when fetchConcurrency is raised above 1", async () => {
+    const client = new NineRouterClient({
+      ...config,
+      fetchModel: "fixture/fetch",
+      fetchConcurrency: 2,
+    });
+    const signal = new AbortController().signal;
+    const started: string[] = [];
+    const post = jest.spyOn(
+      (client as unknown as { http: AxiosInstance }).http,
+      "post",
+    );
+    post.mockImplementation(async (path: string, body: any) => {
+      started.push(body.url);
+      return {
+        data: {
+          provider: "fixture",
+          url: body.url,
+          final_url: undefined,
+          links: [],
+          content: { format: "html", text: "<h1>Source page</h1>" },
+        },
+      };
+    });
+    await Promise.all([
+      client.fetch("https://jobvision.ir/jobs/1", signal),
+      client.fetch("https://jobvision.ir/jobs/2", signal),
+    ]);
+    expect(started).toHaveLength(2);
+    post.mockRestore();
+  });
+  it("opens the circuit after repeated transient failures and fails fast without a request", async () => {
+    jest.useFakeTimers({ doNotFake: ["nextTick", "queueMicrotask"] });
+    try {
+      failures = [502, 502, 502, 502];
+      const client = new NineRouterClient(config);
+      await expect(
+        client.fetch("https://jobvision.ir/jobs/1", new AbortController().signal),
+      ).rejects.toMatchObject({ code: "FETCH_EMPTY_CONTENT" });
+      expect(requests).toHaveLength(2);
+      await expect(
+        client.fetch("https://jobvision.ir/jobs/2", new AbortController().signal),
+      ).rejects.toMatchObject({ code: "FETCH_EMPTY_CONTENT" });
+      expect(requests).toHaveLength(4);
+      // The second consecutive transient failure trips the breaker; a third
+      // call must fail immediately, without reaching the provider.
+      await expect(
+        client.fetch("https://jobvision.ir/jobs/3", new AbortController().signal),
+      ).rejects.toMatchObject({ code: "FETCH_PROVIDER_COOLING_DOWN" });
+      expect(requests).toHaveLength(4);
+      jest.advanceTimersByTime(25000);
+      failures = [];
+      await expect(
+        client.fetch("https://jobvision.ir/jobs/4", new AbortController().signal),
+      ).resolves.toBeDefined();
+      expect(requests).toHaveLength(5);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  it("does not trip the circuit on non-transient failures like 404", async () => {
+    const client = new NineRouterClient(config);
+    for (let i = 0; i < 3; i++) {
+      failures = [404];
+      await expect(
+        client.fetch("https://jobvision.ir/jobs/1", new AbortController().signal),
+      ).rejects.toMatchObject({ code: "FETCH_HTTP_404" });
+    }
+    failures = [];
+    await expect(
+      client.fetch("https://jobvision.ir/jobs/2", new AbortController().signal),
+    ).resolves.toBeDefined();
+  });
   it.each(["ag", "agents", "search-combo"])(
     "passes explicit %s aliases without relying on the empty model registry",
     async (alias) => {

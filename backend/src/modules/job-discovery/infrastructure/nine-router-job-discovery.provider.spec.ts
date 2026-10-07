@@ -412,6 +412,81 @@ describe("Search/fetch boundary", () => {
     expect(client.fetch.mock.calls.length).toBeLessThanOrEqual(3);
     expect(result.sources[0].error).toBe("TIMEOUT");
   });
+  it("drops a page the V1M gate rejects without calling the LLM extractor", async () => {
+    client.search.mockResolvedValue(["https://jobinja.ir/jobs/1"]);
+    client.fetch.mockResolvedValue({
+      url: "https://jobinja.ir/jobs/1",
+      content: "Unknown page layout",
+    });
+    const extractor = { extract: jest.fn() };
+    const decisionProvider = {
+      evaluate: jest.fn().mockResolvedValue({
+        isJobPosting: 0.1,
+        isClosed: 0,
+        isSpam: 0,
+        shouldExtract: false,
+        mode: "v1m-primary",
+      }),
+    };
+    const result = await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobinja.ir"],
+      extractor,
+      decisionProvider,
+    ).discover({ targetRoles: ["Backend Developer"] }, signal);
+    expect(decisionProvider.evaluate).toHaveBeenCalledWith(
+      "Unknown page layout",
+      "https://jobinja.ir/jobs/1",
+      signal,
+    );
+    expect(extractor.extract).not.toHaveBeenCalled();
+    expect(result.jobs).toEqual([]);
+    expect(result.sources[0]).toMatchObject({ rejected: 1 });
+    expect(result.sources[0].metrics).toMatchObject({
+      v1mCalls: 1,
+      v1mRejected: 1,
+      aiCallsSaved: 1,
+      aiCalls: 0,
+    });
+  });
+  it("still runs the LLM extractor when the V1M gate accepts a page", async () => {
+    client.search.mockResolvedValue(["https://jobinja.ir/jobs/1"]);
+    client.fetch.mockResolvedValue({
+      url: "https://jobinja.ir/jobs/1",
+      content: "Unknown page layout",
+    });
+    const extractor = {
+      extract: jest.fn().mockResolvedValue({
+        title: "Backend Developer",
+        company: "X",
+        sourceUrl: "https://jobinja.ir/jobs/1",
+      }),
+    };
+    const decisionProvider = {
+      evaluate: jest.fn().mockResolvedValue({
+        isJobPosting: 0.95,
+        isClosed: 0,
+        isSpam: 0,
+        shouldExtract: true,
+        mode: "v1m-primary",
+      }),
+    };
+    const result = await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobinja.ir"],
+      extractor,
+      decisionProvider,
+    ).discover({ targetRoles: ["Backend Developer"] }, signal);
+    expect(extractor.extract).toHaveBeenCalled();
+    expect(result.jobs).toHaveLength(1);
+    expect(result.sources[0].metrics).toMatchObject({
+      v1mCalls: 1,
+      v1mAccepted: 1,
+      aiCalls: 1,
+    });
+  });
   it("does not let model fallback revive an explicitly closed posting", async () => {
     client.search.mockResolvedValue(["https://jobinja.ir/jobs/1"]);
     client.fetch.mockResolvedValue({

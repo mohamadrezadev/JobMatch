@@ -39,6 +39,20 @@ export interface SourceMetrics {
   aiCalls: number;
   duplicates: number;
   timeouts: number;
+  v1mMs: number;
+  v1mCalls: number;
+  v1mPrimaryCalls: number;
+  v1mPrimarySuccess: number;
+  v1mPrimaryFailures: number;
+  v1mFallbackCalls: number;
+  v1mFallbackSuccess: number;
+  v1mFallbackFailures: number;
+  v1mAccepted: number;
+  v1mRejected: number;
+  v1mTimeouts: number;
+  v1mErrors: number;
+  v1mFailOpen: number;
+  aiCallsSaved: number;
 }
 
 export function emptySourceMetrics(): SourceMetrics {
@@ -55,6 +69,20 @@ export function emptySourceMetrics(): SourceMetrics {
     aiCalls: 0,
     duplicates: 0,
     timeouts: 0,
+    v1mMs: 0,
+    v1mCalls: 0,
+    v1mPrimaryCalls: 0,
+    v1mPrimarySuccess: 0,
+    v1mPrimaryFailures: 0,
+    v1mFallbackCalls: 0,
+    v1mFallbackSuccess: 0,
+    v1mFallbackFailures: 0,
+    v1mAccepted: 0,
+    v1mRejected: 0,
+    v1mTimeouts: 0,
+    v1mErrors: 0,
+    v1mFailOpen: 0,
+    aiCallsSaved: 0,
   };
 }
 
