@@ -1,5 +1,14 @@
 import { discoveryIssue, publicSource } from "./discovery-issue";
 it.each([
+  ["SEARCH_TIMEOUT", "search"],
+  ["FETCH_EMPTY_CONTENT", "fetch"],
+  ["EXTRACTION_TIMEOUT", "extract"],
+  ["SOURCE_REJECTED", "validate"],
+  ["TIMEOUT", undefined],
+])("identifies only known failure stages for %s", (code, stage) => {
+  expect(discoveryIssue(code as string).stage).toBe(stage);
+});
+it.each([
   ["PAGE_CONNECTION_ERROR", "site"],
   ["PAGE_ACCESS_BLOCKED", "site"],
   ["FETCH_HTTP_401", "provider"],

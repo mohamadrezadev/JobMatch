@@ -67,10 +67,18 @@ function issueDetails(code: string): DiscoveryIssue {
 }
 
 export function discoveryIssue(code: string): DiscoveryIssue {
-  const stage = /^SEARCH_|JOB_SEARCH_/.test(code) ? "search"
-    : /^EXTRACTION_/.test(code) ? "extract"
-    : /^FETCH_|^PAGE_|JOB_FETCH_/.test(code) ? "fetch"
-    : code === "SOURCE_REJECTED" ? "validate" : undefined;
+  const stage =
+    code === "FETCH_OR_VALIDATION_FAILED"
+      ? undefined
+      : /^SEARCH_|JOB_SEARCH_/.test(code)
+        ? "search"
+        : /^EXTRACTION_/.test(code)
+          ? "extract"
+          : /^FETCH_|^PAGE_|JOB_FETCH_/.test(code)
+            ? "fetch"
+            : code === "SOURCE_REJECTED"
+              ? "validate"
+              : undefined;
   return { ...issueDetails(code), ...(stage ? { stage } : {}) };
 }
 

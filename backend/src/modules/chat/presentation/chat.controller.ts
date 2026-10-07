@@ -33,7 +33,10 @@ import { ChatAdmissionService } from "../../chat-admission/chat-admission.servic
 @UseGuards(JwtAuthGuard)
 @UseFilters(ChatExceptionFilter)
 export class ChatController {
-  constructor(private readonly chat: ChatService, @Optional() private readonly admission?: ChatAdmissionService) {}
+  constructor(
+    private readonly chat: ChatService,
+    @Optional() private readonly admission?: ChatAdmissionService,
+  ) {}
   @Post("message")
   @HttpCode(200)
   @ApiOperation({
@@ -52,16 +55,21 @@ export class ChatController {
     @CurrentUser() user: { sub: string },
     @Body() dto: SendMessageDto,
   ) {
-    const key = `user:${user.sub}`, lease = randomUUID();
+    const key = `user:${user.sub}`,
+      lease = randomUUID();
     await this.admission?.reserve(key, lease);
-    try { return {
-      success: true,
-      data: await this.chat.send(
-        user.sub,
-        dto.message.trim(),
-        dto.conversationId,
-      ),
-    }; } finally { await this.admission?.release(key, lease, false); }
+    try {
+      return {
+        success: true,
+        data: await this.chat.send(
+          user.sub,
+          dto.message.trim(),
+          dto.conversationId,
+        ),
+      };
+    } finally {
+      await this.admission?.release(key, lease, false);
+    }
   }
   @Get("conversations")
   @ApiOperation({ summary: "List the latest 50 owned conversations" })

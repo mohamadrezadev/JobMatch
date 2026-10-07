@@ -17,7 +17,17 @@ import {
 
 export function chatFailure(error: unknown) {
   if (error instanceof ChatAdmissionError) {
-    return { status: error.getStatus(), ...(error.getResponse() as { code: string; message: string; retryAfterSeconds: number; nextAllowedAt: string; active: boolean; activeRunId: string | null }) };
+    return {
+      status: error.getStatus(),
+      ...(error.getResponse() as {
+        code: string;
+        message: string;
+        retryAfterSeconds: number;
+        nextAllowedAt: string;
+        active: boolean;
+        activeRunId: string | null;
+      }),
+    };
   }
   const status =
     error instanceof GuestLimitReached ||
@@ -64,9 +74,8 @@ export class ChatExceptionFilter implements ExceptionFilter {
   catch(error: unknown, host: ArgumentsHost) {
     const { status, ...details } = chatFailure(error);
     const response = host.switchToHttp().getResponse<Response>();
-    if ("retryAfterSeconds" in details) response.setHeader("Retry-After", String(details.retryAfterSeconds));
-    response
-      .status(status)
-      .json({ success: false, error: details });
+    if ("retryAfterSeconds" in details)
+      response.setHeader("Retry-After", String(details.retryAfterSeconds));
+    response.status(status).json({ success: false, error: details });
   }
 }

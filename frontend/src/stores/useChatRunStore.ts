@@ -4,6 +4,10 @@ import { readRunStream } from "@/lib/chat-run-stream";
 import { useChatStore } from "./useChatStore";
 import { runFinished, type ChatRunView, type RunEvent } from "@/types/chat-run";
 import type { Conversation } from "@/types/chat";
+import {
+  admissionDetails,
+  type ChatAvailability,
+} from "@/lib/chat-availability";
 import type {
   DiscoveryJob,
   DiscoveryResult,
@@ -11,6 +15,9 @@ import type {
 } from "@/types/discovery";
 
 interface RunState {
+  availability: ChatAvailability | null;
+  loadAvailability: () => Promise<void>;
+  followActive: () => Promise<void>;
   generation: number;
   runs: ChatRunView[];
   pending: boolean;
@@ -126,6 +133,44 @@ async function connect(runId: string, generation: number) {
 }
 
 export const useChatRunStore = create<RunState>((set, get) => ({
+  availability: null,
+  loadAvailability: async () => {
+    const owner = useChatStore.getState().owner;
+    if (!owner) return;
+    try {
+      const response = await apiClient.get("/api/chat/availability");
+      if (useChatStore.getState().owner === owner)
+        set({ availability: response.data.data });
+    } catch {
+      /* Admission on POST remains authoritative if status cannot load. */
+    }
+  },
+  followActive: async () => {
+    const id = get().availability?.activeRunId;
+    if (!id) return;
+    try {
+      const response = await apiClient.get(`/api/chat/runs/${id}`);
+      const conversationId = response.data.data.conversationId;
+      if (conversationId) await useChatStore.getState().select(conversationId);
+      if (conversationId) await get().restore(conversationId);
+      else {
+        set((state) => ({
+          runs: state.runs.some((run) => run.runId === id)
+            ? state.runs
+            : [
+                ...state.runs,
+                blank(id, response.data.data.message ?? "درخواست قبلی", null),
+              ],
+          pending: true,
+        }));
+        void connect(id, get().generation);
+      }
+    } catch {
+      set({
+        error: "نمایش اجرای قبلی بارگذاری نشد؛ کمی بعد دوباره بررسی کنید.",
+      });
+    }
+  },
   generation: 0,
   runs: [],
   pending: false,
@@ -191,6 +236,22 @@ export const useChatRunStore = create<RunState>((set, get) => ({
       }
       if (generation !== get().generation) return false;
       const { runId, conversationId: id } = response.data.data;
+      if (response.data.data.reused) {
+        set({ pending: false, pendingMessage: null });
+        uncertain = undefined;
+        if (id) {
+          await useChatStore.getState().select(id);
+          await get().restore(id);
+        } else {
+          await get().loadAvailability();
+          await get().followActive();
+        }
+        set({
+          error:
+            "اجرای قبلی نمایش داده شد؛ پیام جدید ارسال نشد و متن شما حفظ شده است.",
+        });
+        return false;
+      }
       const previous = retryOf
         ? get().runs.find((run) => run.runId === retryOf)
         : undefined;
@@ -214,14 +275,18 @@ export const useChatRunStore = create<RunState>((set, get) => ({
           ?.status;
         if (status) uncertain = undefined;
         set({
+          ...(admissionDetails(error).availability
+            ? { availability: admissionDetails(error).availability! }
+            : {}),
           pending: false,
           pendingMessage: null,
           error:
-            status === 409
+            admissionDetails(error).message ??
+            (status === 409
               ? "اجرای قبلی هنوز فعال است یا ترجیحات گفتگو تغییر کرده‌اند؛ گفتگو را دوباره باز کنید."
               : status === 429
                 ? "تعداد درخواست‌ها زیاد شده؛ کمی بعد دوباره تلاش کنید."
-                : "ارسال تأیید نشد؛ متن حفظ شده است. دوباره تلاش کنید یا تاریخچه را بررسی کنید.",
+                : "ارسال تأیید نشد؛ متن حفظ شده است. دوباره تلاش کنید یا تاریخچه را بررسی کنید."),
         });
       }
       return false;
@@ -239,6 +304,8 @@ export const useChatRunStore = create<RunState>((set, get) => ({
       sequence: event.sequence,
     };
     const data = event.data;
+    if (data.availability)
+      set({ availability: data.availability as ChatAvailability });
     if (event.type === "run.started") next.status = "RUNNING";
     if (event.type === "context.updated") {
       const conversation = data.conversation as Conversation;

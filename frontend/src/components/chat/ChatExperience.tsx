@@ -19,6 +19,7 @@ import { ChatMessage } from "./ChatMessage";
 import { discoveryCountHint } from "@/lib/discovery-progress";
 import { runFinished } from "@/types/chat-run";
 import Link from "next/link";
+import { useChatWait, chatRequestHint } from "@/lib/chat-availability";
 
 const workLabels = { Remote: "دورکار", Hybrid: "هیبرید", OnSite: "حضوری" };
 export default function ChatExperience() {
@@ -32,10 +33,21 @@ function AuthenticatedChat() {
   const { user, isAuthenticated } = useAuthStore();
   const chat = useChatStore();
   const runs = useChatRunStore();
+  const wait = useChatWait(runs.availability);
   const [hydrated, setHydrated] = useState(false);
   const [draft, setDraft] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    void runs.loadAvailability();
+    const refresh = () => void useChatRunStore.getState().loadAvailability();
+    window.addEventListener("focus", refresh);
+    const timer = setInterval(refresh, 5000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      clearInterval(timer);
+    };
+  }, [user?.id, hydrated]);
   useEffect(() => {
     setHydrated(useAuthStore.persist.hasHydrated());
     return useAuthStore.persist.onFinishHydration(() => setHydrated(true));
@@ -46,6 +58,7 @@ function AuthenticatedChat() {
     useChatStore.getState().reset(owner);
     useDiscoveryStore.getState().reset();
     useChatRunStore.getState().reset();
+    useChatRunStore.setState({ availability: null });
     setDraft(
       new URLSearchParams(window.location.search).get("prompt") ??
         sessionStorage.getItem(guestDraftKey) ??
@@ -117,7 +130,7 @@ function AuthenticatedChat() {
   }, [chat.active?.messages.length]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (claiming || claimError || runs.pending) return;
+    if (claiming || claimError || runs.pending || wait.seconds > 0) return;
     if (await runs.start(draft.trim(), chat.active?.id)) {
       setDraft("");
       sessionStorage.removeItem(guestDraftKey);
@@ -378,7 +391,27 @@ function AuthenticatedChat() {
       <div className="shrink-0 border-t border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/50">
         <p className="mb-2 text-[10px] leading-5 text-slate-500 dark:text-slate-400">
           {discoveryCountHint}
+          <span className="block">{chatRequestHint}</span>
         </p>
+        {!runs.pending && wait.seconds > 0 && (
+          <div
+            role="status"
+            className="mb-3 rounded-xl bg-brand-500/10 p-3 text-xs text-brand-600 dark:text-brand-200"
+          >
+            {wait.active
+              ? "درخواست قبلی هنوز در حال انجام است."
+              : `درخواست بعدی ${wait.seconds.toLocaleString("fa-IR")} ثانیه دیگر؛ متنت را می‌توانی آماده کنی.`}
+            {wait.active && runs.availability?.activeRunId && (
+              <button
+                type="button"
+                className="mr-2 underline"
+                onClick={() => void runs.followActive()}
+              >
+                مشاهده اجرای قبلی
+              </button>
+            )}
+          </div>
+        )}
         <form onSubmit={submit} className="flex gap-2">
           <label htmlFor="chat-input" className="sr-only">
             پیام شما
@@ -403,6 +436,7 @@ function AuthenticatedChat() {
               runs.pending ||
               claiming ||
               Boolean(claimError) ||
+              wait.seconds > 0 ||
               !draft.trim()
             }
             className="flex items-center gap-2 rounded-xl bg-brand-500 px-5 py-3 text-xs font-bold text-white shadow-lg shadow-brand-500/20 transition-all hover:bg-brand-600"

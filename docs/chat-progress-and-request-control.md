@@ -26,6 +26,9 @@ Only searches incur the post-search pause; general conversation does not.
 Leases expire after three minutes so a killed worker cannot block indefinitely.
 Release checks the lease ID so a late worker cannot release a newer request.
 Legacy chat and discovery HTTP routes use the same authenticated admission key.
+The legacy discovery endpoint pauses after any search attempt, including cache
+reuse; chat runs pause only when discovery starts. Read-only result restoration
+remains unrestricted.
 No external service or new package is required. Completed empty searches and
 partial results keep the existing discovery-cache policy.
 
@@ -39,3 +42,10 @@ Verify live event replay, per-source failure stages, retained drafts, countdown,
 duplicate reuse, simultaneous reservations through separate database clients,
 expiry, stale release, failure release, owner isolation and legacy-route gates.
 Production requires deploying the additive migration before backend code.
+
+## Delivered configuration
+`CHAT_SEARCH_COOLDOWN_SECONDS` defaults to 15 and is bounded to 5..60. The
+additive migration is `20261007140000_chat_request_admission`. It has been applied
+locally. Validation includes real PostgreSQL concurrency, JWT HTTP/SSE admission
+and existing isolated browser journeys; see the Change verification artifact
+for measurements and deployment limits.

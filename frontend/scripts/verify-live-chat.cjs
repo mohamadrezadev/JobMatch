@@ -127,10 +127,14 @@ module.exports = (async () => {
       streamCount = 0,
       replayCursor = 0,
       replayReleased = false,
+      pausedUntil = 0,
       releaseReplay;
     const gate = new Promise((resolve) => {
       releaseReplay = () => {
         replayReleased = true;
+        pausedUntil = Date.now() + 5000;
+        const terminal = records[0].events.find(event => event.type === "run.completed");
+        terminal.data.availability = { active: false, activeRunId: null, nextAllowedAt: new Date(pausedUntil).toISOString(), retryAfterSeconds: 5 };
         resolve();
       };
     });
@@ -141,6 +145,13 @@ module.exports = (async () => {
         console.log("Fixture request:", path);
       if (path === "/api/users/profile")
         return json(route, { isProfileComplete: false });
+      if (path === "/api/chat/availability")
+        return json(route, {
+          active: false,
+          activeRunId: null,
+          nextAllowedAt: new Date(Math.max(Date.now(), pausedUntil)).toISOString(),
+          retryAfterSeconds: Math.max(0, Math.ceil((pausedUntil - Date.now()) / 1000)),
+        });
       if (path === "/api/chat/runs" && request.method() === "POST") {
         const body = request.postDataJSON(),
           id = randomUUID(),
@@ -216,6 +227,7 @@ module.exports = (async () => {
                   failed: true,
                   issue: {
                     category: "provider",
+                    stage: "fetch",
                     message: "سرویس دریافت پاسخ معتبر نداد.",
                     retryable: true,
                   },
@@ -238,7 +250,15 @@ module.exports = (async () => {
               text: "۱ موقعیت مرتبط پیدا شد.",
               messageId: assistantId,
             }),
-            event(id, 10, "run.completed", { partial: true }),
+            event(id, 10, "run.completed", {
+              partial: true,
+              availability: {
+                active: false,
+                activeRunId: null,
+                nextAllowedAt: new Date(Date.now() + 3500).toISOString(),
+                retryAfterSeconds: 4,
+              },
+            }),
           );
         if (createCount !== 2) {
           const completion = events.findIndex(
@@ -366,6 +386,19 @@ module.exports = (async () => {
     await expect(chat.activity()).toContainText("بعضی منابع کامل بررسی نشدند");
     await expect(chat.activity()).toContainText("یکی از منابع پاسخ کامل نداد");
     await expect(chat.activity()).toContainText("irantalent.com");
+    await expect(chat.activity().getByLabel("مراحل درخواست")).toBeVisible();
+    await expect(chat.activity()).toContainText(
+      "تکمیل نشد در مرحله «دریافت صفحات»",
+    );
+    await chat.input().fill("متن محفوظ در زمان مکث");
+    await expect(
+      page.getByRole("button", { name: "ارسال پیام", exact: true }),
+    ).toBeDisabled();
+    await expect(chat.input()).toBeEnabled();
+    await expect(chat.input()).toHaveValue("متن محفوظ در زمان مکث");
+    await expect(
+      page.getByRole("button", { name: "ارسال پیام", exact: true }),
+    ).toBeEnabled({ timeout: 10000 });
     await chat.send("حداقل ۲۵ میلیون");
     await page
       .getByRole("button", { name: "تلاش دوباره", exact: true })

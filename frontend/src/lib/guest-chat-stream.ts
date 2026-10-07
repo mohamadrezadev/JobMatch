@@ -4,9 +4,13 @@ export interface GuestProgressEvent {
   type: string;
   data: Record<string, unknown>;
 }
-function failure(code: string, status?: number) {
+function failure(
+  code: string,
+  status?: number,
+  details: Record<string, unknown> = {},
+) {
   return Object.assign(new Error("Guest request failed"), {
-    response: { status, data: { error: { code } } },
+    response: { status, data: { error: { ...details, code } } },
   });
 }
 
@@ -37,7 +41,11 @@ export async function sendGuestMessage(
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      throw failure(body?.error?.code ?? "INTERNAL_ERROR", response.status);
+      throw failure(
+        body?.error?.code ?? "INTERNAL_ERROR",
+        response.status,
+        body?.error ?? {},
+      );
     }
     if (
       !response.body ||
@@ -73,7 +81,10 @@ export async function sendGuestMessage(
           )
             throw new Error("Invalid guest progress event");
           if (event.type === "guest.failed")
-            throw failure(String(event.data.code), Number(event.data.status));
+            throw failure(String(event.data.code), Number(event.data.status), {
+              ...event.data,
+              ...((event.data.availability as Record<string, unknown>) ?? {}),
+            });
           if (event.type === "guest.completed") {
             const state = event.data.state as GuestChatState;
             if (

@@ -40,6 +40,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   useChatStore.getState().reset("owner");
   useChatRunStore.getState().reset();
+  useChatRunStore.setState({ availability: null });
   (readRunStream as jest.Mock).mockImplementation(
     (_id, _after, signal) =>
       new Promise<void>((resolve) =>
@@ -48,6 +49,69 @@ beforeEach(() => {
   );
 });
 afterEach(() => useChatRunStore.getState().reset());
+it("keeps a server pause and its explanation without creating a run", async () => {
+  const availability = {
+    active: false,
+    activeRunId: null,
+    nextAllowedAt: new Date(Date.now() + 15000).toISOString(),
+    retryAfterSeconds: 15,
+  };
+  post.mockRejectedValueOnce({
+    response: {
+      status: 429,
+      data: {
+        error: {
+          code: "SEARCH_COOLDOWN",
+          message: "کمی صبر کنید",
+          ...availability,
+        },
+      },
+    },
+  });
+  expect(await useChatRunStore.getState().start("draft preserved", "c")).toBe(
+    false,
+  );
+  expect(useChatRunStore.getState()).toMatchObject({
+    availability,
+    pending: false,
+    runs: [],
+    error: "کمی صبر کنید",
+  });
+});
+it("resumes an active run from another conversation without accepting the new draft", async () => {
+  post.mockResolvedValueOnce({
+    data: {
+      data: { runId: "existing", conversationId: "original", reused: true },
+    },
+  });
+  get.mockImplementation(async (path: string) => ({
+    data: {
+      data: path.endsWith("/runs")
+        ? [
+            {
+              id: "existing",
+              message: "old",
+              conversationId: "original",
+              events: [],
+            },
+          ]
+        : {
+            id: "original",
+            messages: [],
+            context: { searchContext: { targetRoles: [] } },
+          },
+    },
+  }));
+  expect(await useChatRunStore.getState().start("new draft", "different")).toBe(
+    false,
+  );
+  expect(useChatStore.getState().active?.id).toBe("original");
+  expect(useChatRunStore.getState().runs.map((run) => run.runId)).toEqual([
+    "existing",
+  ]);
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(useChatRunStore.getState().error).toContain("متن شما حفظ شده");
+});
 it("retains source counts during phase updates and failure explanations on final replay", () => {
   useChatRunStore.setState({ runs: [run()] });
   const store = useChatRunStore.getState();

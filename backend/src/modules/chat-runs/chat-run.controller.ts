@@ -44,6 +44,17 @@ export class ChatRunController {
   async availability(@CurrentUser() user: { sub: string }) {
     return { success: true, data: await this.runs.availability(user.sub) };
   }
+  @Get("runs/:id")
+  async get(
+    @CurrentUser() user: { sub: string },
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    const run = await this.runs.owned(user.sub, id);
+    return {
+      success: true,
+      data: { ...this.runs.view(run), message: run.message },
+    };
+  }
   @Post("runs")
   @HttpCode(202)
   async create(
@@ -55,6 +66,8 @@ export class ChatRunController {
       (input.retryOf && (input.message || input.conversationId))
     )
       throw new BadRequestException("Provide a message or retryOf");
+    const replay = await this.runs.replay(user.sub, input.requestId);
+    if (replay) return { success: true, data: replay };
     const now = Date.now();
     for (const [key, bucket] of this.limits)
       if (bucket.until <= now) this.limits.delete(key);

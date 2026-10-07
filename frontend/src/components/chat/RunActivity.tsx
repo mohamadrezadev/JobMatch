@@ -13,6 +13,7 @@ import {
 import { SourceProblems } from "./SourceProblems";
 import { LoadingSpinner } from "@/components/ui/LoadingState";
 import { TaskProgress } from "./TaskProgress";
+import { useChatWait } from "@/lib/chat-availability";
 
 const agentReasons: Record<string, string> = {
   INITIAL_SEARCH: "شروع جستجو در منابع منتخب",
@@ -27,7 +28,8 @@ const agentReasons: Record<string, string> = {
 
 export function RunActivity({ run }: { run: ChatRunView }) {
   const [expanded, setExpanded] = useState(false);
-  const { pending, start } = useChatRunStore();
+  const { pending, start, availability } = useChatRunStore();
+  const wait = useChatWait(availability);
   const finished = runFinished(run.status);
   const context = run.events.find((e) => e.type === "context.updated")?.data
     .conversation as Conversation | undefined;
@@ -73,7 +75,11 @@ export function RunActivity({ run }: { run: ChatRunView }) {
           aria-atomic="false"
           className="space-y-2 text-xs text-slate-600 dark:text-slate-300"
         >
-          <TaskProgress events={run.events} finished={finished} sources={run.sources} />
+          <TaskProgress
+            events={run.events}
+            finished={finished}
+            sources={run.sources}
+          />
           {context ? (
             <p>
               ✓ درخواست مشخص شد:{" "}
@@ -111,7 +117,10 @@ export function RunActivity({ run }: { run: ChatRunView }) {
           {cached && <p>✓ نتایج ذخیره‌شده همین ترجیحات بازیابی شد</p>}
           {run.events
             .filter((event) => event.type.startsWith("agent."))
-            .filter((event, index, all) => !all.slice(index + 1).some(item => item.type === event.type))
+            .filter(
+              (event, index, all) =>
+                !all.slice(index + 1).some((item) => item.type === event.type),
+            )
             .map((event) => {
               const data = event.data;
               if (
@@ -211,11 +220,13 @@ export function RunActivity({ run }: { run: ChatRunView }) {
       {run.retryable && (
         <button
           type="button"
-          disabled={pending}
+          disabled={pending || wait.seconds > 0}
           onClick={() => void start("", undefined, run.runId)}
           className="rounded-lg bg-brand-500/10 px-3 py-2 text-xs text-brand-500 disabled:opacity-40"
         >
-          تلاش دوباره
+          {wait.seconds > 0
+            ? `تلاش دوباره ${wait.seconds.toLocaleString("fa-IR")} ثانیه دیگر`
+            : "تلاش دوباره"}
         </button>
       )}
       {run.jobs.length > 0 && (

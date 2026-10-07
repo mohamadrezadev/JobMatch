@@ -7,7 +7,10 @@ import {
   Optional,
 } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import { ChatAdmissionService, ChatAdmissionError } from "../chat-admission/chat-admission.service";
+import {
+  ChatAdmissionService,
+  ChatAdmissionError,
+} from "../chat-admission/chat-admission.service";
 import { Prisma, ChatRun } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ChatService } from "../chat/application/chat.service";
@@ -96,37 +99,66 @@ export class ChatRunService implements OnModuleDestroy {
     }
     let run: ChatRun;
     try {
-      const insert = async (tx: Prisma.TransactionClient, id?: string) => tx.chatRun.create({
-        data: {
-          ...(id ? { id } : {}),
-          userId,
-          requestId: input.requestId,
-          message: previous?.message ?? input.message!.trim(),
-          conversationId,
-          retryOf: previous?.id,
-          contextVersion: previous?.contextVersion,
-          userMessageId: previous?.userMessageId,
-          assistantMessageId: previous?.assistantMessageId,
-        },
-      });
+      const insert = async (tx: Prisma.TransactionClient, id?: string) =>
+        tx.chatRun.create({
+          data: {
+            ...(id ? { id } : {}),
+            userId,
+            requestId: input.requestId,
+            message: previous?.message ?? input.message!.trim(),
+            conversationId,
+            retryOf: previous?.id,
+            contextVersion: previous?.contextVersion,
+            userMessageId: previous?.userMessageId,
+            assistantMessageId: previous?.assistantMessageId,
+          },
+        });
       if (this.admission) {
         let replayed = false;
         run = await this.prisma.$transaction(async (tx) => {
           // Replay can race the initial lookup, so check again under admission.
-          const replay = await tx.chatRun.findUnique({ where: { userId_requestId: { userId, requestId: input.requestId } } });
-          if (replay) { replayed = true; return replay; }
+          const replay = await tx.chatRun.findUnique({
+            where: { userId_requestId: { userId, requestId: input.requestId } },
+          });
+          if (replay) {
+            replayed = true;
+            return replay;
+          }
           const id = randomUUID();
           await this.admission!.reserve(`user:${userId}`, id, tx);
           // Respect in-flight runs created before this migration too.
-          const active = await tx.chatRun.findFirst({ where: { userId, status: { in: ["QUEUED", "RUNNING"] }, startedAt: { gt: new Date(Date.now() - 180000) } } });
-          if (active) throw new ChatAdmissionError({ active: true, activeRunId: active.id, nextAllowedAt: new Date(active.startedAt.getTime() + 180000).toISOString(), retryAfterSeconds: 180 });
+          const active = await tx.chatRun.findFirst({
+            where: {
+              userId,
+              status: { in: ["QUEUED", "RUNNING"] },
+              startedAt: { gt: new Date(Date.now() - 180000) },
+            },
+          });
+          if (active)
+            throw new ChatAdmissionError({
+              active: true,
+              activeRunId: active.id,
+              nextAllowedAt: new Date(
+                active.startedAt.getTime() + 180000,
+              ).toISOString(),
+              retryAfterSeconds: 180,
+            });
           return insert(tx, id);
         });
         if (replayed) return this.view(run);
       } else run = await insert(this.prisma);
     } catch (error) {
-      if (error instanceof ChatAdmissionError && error.availability.activeRunId) {
-        const active = await this.prisma.chatRun.findFirst({ where: { id: error.availability.activeRunId, userId, status: { in: ["QUEUED", "RUNNING"] } } });
+      if (
+        error instanceof ChatAdmissionError &&
+        error.availability.activeRunId
+      ) {
+        const active = await this.prisma.chatRun.findFirst({
+          where: {
+            id: error.availability.activeRunId,
+            userId,
+            status: { in: ["QUEUED", "RUNNING"] },
+          },
+        });
         if (active) return { ...this.view(active), reused: true };
       }
       if (
@@ -154,11 +186,31 @@ export class ChatRunService implements OnModuleDestroy {
     void task.finally(() => this.tasks.delete(task));
     return this.view(run);
   }
+  async replay(userId: string, requestId: string) {
+    const run = await this.prisma.chatRun.findUnique({
+      where: { userId_requestId: { userId, requestId } },
+    });
+    return run ? this.view(run) : null;
+  }
   view(run: ChatRun) {
     return { runId: run.id, conversationId: run.conversationId };
   }
   async availability(userId: string) {
-    return this.admission?.availability(`user:${userId}`) ?? { active: false, activeRunId: null, nextAllowedAt: new Date().toISOString(), retryAfterSeconds: 0 };
+    if (!this.admission)
+      return {
+        active: false,
+        activeRunId: null,
+        nextAllowedAt: new Date().toISOString(),
+        retryAfterSeconds: 0,
+      };
+    const availability = await this.admission.availability(`user:${userId}`);
+    if (availability.activeRunId) {
+      const run = await this.prisma.chatRun.findFirst({
+        where: { id: availability.activeRunId, userId },
+      });
+      if (!run) availability.activeRunId = null;
+    }
+    return availability;
   }
   async publish(runId: string, type: string, data: Record<string, unknown>) {
     // The row increment and event insert commit together, even across processes.
@@ -375,9 +427,20 @@ export class ChatRunService implements OnModuleDestroy {
       });
       if (this.admission) {
         await this.admission.release(`user:${run.userId}`, id, searched, tx);
-        const availability = await this.admission.availability(`user:${run.userId}`, tx);
+        const availability = await this.admission.availability(
+          `user:${run.userId}`,
+          tx,
+        );
         // The event remains part of the same terminal-state transaction.
-        await tx.chatRunEvent.update({ where: { runId_sequence: { runId: id, sequence: run.eventSequence } }, data: { data: { ...data, availability: { ...availability } } as Prisma.InputJsonValue } });
+        await tx.chatRunEvent.update({
+          where: { runId_sequence: { runId: id, sequence: run.eventSequence } },
+          data: {
+            data: {
+              ...data,
+              availability: { ...availability },
+            } as Prisma.InputJsonValue,
+          },
+        });
       }
     });
   }

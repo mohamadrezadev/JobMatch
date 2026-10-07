@@ -1,6 +1,7 @@
 import axios from "axios";
 import type { Conversation } from "@/types/chat";
 import type { DiscoveryJob, DiscoveryIssue } from "@/types/discovery";
+import type { ChatAvailability } from "./chat-availability";
 
 export interface GuestDiscovery {
   jobs: Array<Omit<DiscoveryJob, "id" | "requiredSkills" | "preferredSkills">>;
@@ -18,6 +19,7 @@ export interface GuestDiscovery {
 }
 
 export interface GuestChatState {
+  availability?: ChatAvailability;
   messages: Conversation["messages"];
   context: Conversation["context"];
   remaining: number;

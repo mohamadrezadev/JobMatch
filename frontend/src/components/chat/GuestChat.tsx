@@ -17,6 +17,13 @@ import {
   discoveryTargetLabel,
 } from "@/lib/discovery-progress";
 import { SourceProblems } from "./SourceProblems";
+import { TaskProgress } from "./TaskProgress";
+import {
+  useChatWait,
+  chatRequestHint,
+  admissionDetails,
+  type ChatAvailability,
+} from "@/lib/chat-availability";
 import type { DiscoveryIssue } from "@/types/discovery";
 import {
   guestChatClient,
@@ -39,6 +46,11 @@ export function GuestChat() {
   const [error, setError] = useState("");
   const [activity, setActivity] = useState<GuestProgressEvent | undefined>();
   const [targetLabel, setTargetLabel] = useState("");
+  const [events, setEvents] = useState<GuestProgressEvent[]>([]);
+  const [availability, setAvailability] = useState<ChatAvailability | null>(
+    null,
+  );
+  const wait = useChatWait(availability);
   const [sources, setSources] = useState<
     Array<{
       source: string;
@@ -58,6 +70,7 @@ export function GuestChat() {
         "/api/chat/guest",
       );
       setChat(response.data.data);
+      setAvailability(response.data.data.availability ?? null);
       if (response.data.data.messages.length)
         sessionStorage.setItem(guestContinuationKey, "1");
     } catch (failure: unknown) {
@@ -87,6 +100,22 @@ export function GuestChat() {
     };
   }, []);
   useEffect(() => {
+    if (!wait.active || pending) return;
+    const refresh = async () => {
+      try {
+        const state = (
+          await guestChatClient.get<{ data: GuestChatState }>("/api/chat/guest")
+        ).data.data;
+        setChat(state);
+        setAvailability(state.availability ?? null);
+      } catch {
+        /* Keep current draft and results. */
+      }
+    };
+    const timer = setInterval(() => void refresh(), 3000);
+    return () => clearInterval(timer);
+  }, [wait.active, pending]);
+  useEffect(() => {
     if (chat?.messages.length)
       end.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
   }, [chat?.messages.length]);
@@ -99,7 +128,14 @@ export function GuestChat() {
     await sendMessage(draft);
   }
   async function sendMessage(message: string) {
-    if (!message.trim() || pending || loading || !chat || chat.authRequired)
+    if (
+      !message.trim() ||
+      pending ||
+      loading ||
+      !chat ||
+      chat.authRequired ||
+      wait.seconds > 0
+    )
       return;
     setSubmitted(message.trim());
     setPending(true);
@@ -107,6 +143,7 @@ export function GuestChat() {
     setActivity({ type: "context.processing", data: {} });
     setTargetLabel("");
     setSources([]);
+    setEvents([]);
     const connection = new AbortController();
     request.current = connection;
     try {
@@ -115,6 +152,7 @@ export function GuestChat() {
         (event) => {
           if (connection.signal.aborted) return;
           setActivity(event);
+          setEvents((previous) => [...previous, event]);
           if (event.type === "agent.started")
             setTargetLabel(discoveryTargetLabel(event.data.targetValidJobs));
           if (
@@ -145,6 +183,7 @@ export function GuestChat() {
       );
       if (connection.signal.aborted) return;
       setChat(state);
+      setAvailability(state.availability ?? null);
       saveDraft("");
       sessionStorage.setItem(guestContinuationKey, "1");
     } catch (failure: unknown) {
@@ -166,6 +205,7 @@ export function GuestChat() {
             lastUser?.content === message.trim()
           ) {
             setChat(restored);
+            setAvailability(restored.availability ?? null);
             saveDraft("");
             sessionStorage.setItem(guestContinuationKey, "1");
             return;
@@ -177,6 +217,8 @@ export function GuestChat() {
       const code = (
         failure as { response?: { data?: { error?: { code?: string } } } }
       ).response?.data?.error?.code;
+      const details = admissionDetails(failure);
+      if (details.availability) setAvailability(details.availability);
       if (
         code === "GUEST_LIMIT_REACHED" ||
         code === "GUEST_SESSION_UNAVAILABLE"
@@ -186,11 +228,12 @@ export function GuestChat() {
         );
       else
         setError(
-          code === "RATE_LIMITED"
-            ? "کمی مکث کن؛ یک دقیقه دیگر دوباره پیام بده."
-            : !(failure as { response?: unknown }).response
-              ? "اتصال نمایش وضعیت قطع شد؛ ممکن است درخواست هنوز در حال انجام باشد. متنت حفظ شده؛ تاریخچه را دوباره بررسی کن."
-              : "پیام ارسال نشد؛ متنت حفظ شده. دوباره تلاش کن.",
+          details.message ??
+            (code === "RATE_LIMITED"
+              ? "کمی مکث کن؛ یک دقیقه دیگر دوباره پیام بده."
+              : !(failure as { response?: unknown }).response
+                ? "اتصال نمایش وضعیت قطع شد؛ ممکن است درخواست هنوز در حال انجام باشد. متنت حفظ شده؛ تاریخچه را دوباره بررسی کن."
+                : "پیام ارسال نشد؛ متنت حفظ شده. دوباره تلاش کن."),
         );
     } finally {
       if (!connection.signal.aborted) {
@@ -312,7 +355,7 @@ export function GuestChat() {
         )}
         <div ref={end} />
       </div>
-      {pending && (
+      {(pending || events.length > 0) && (
         <section
           aria-label="فعالیت اجرای درخواست"
           className="ml-5 mr-auto my-3 max-h-48 w-[85%] shrink-0 space-y-2 overflow-y-auto rounded-2xl border border-brand-500/15 bg-brand-500/5 p-4 text-xs"
@@ -320,13 +363,20 @@ export function GuestChat() {
           <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
             فعالیت دستیار کارمچ
           </p>
+          <TaskProgress
+            events={events}
+            finished={!pending}
+            sources={pending ? sources : (chat?.discovery?.sources ?? sources)}
+          />
           <p
             role="status"
             aria-live="polite"
             className="flex items-center gap-2 font-semibold text-brand-600 dark:text-brand-200"
           >
-            <LoadingSpinner className="h-4 w-4" />
-            {progressLabel(activity)}
+            {pending && <LoadingSpinner className="h-4 w-4" />}
+            {pending
+              ? progressLabel(activity)
+              : "بررسی درخواست پایان یافت؛ جزئیات منابع بالا آمده است."}
           </p>
           {targetLabel && activity?.type !== "agent.started" && (
             <p>{targetLabel}</p>
@@ -348,7 +398,7 @@ export function GuestChat() {
                   "در حال جستجوی لینک آگهی‌ها")}
             </p>
           ))}
-          <SourceProblems sources={sources} />
+          {pending && <SourceProblems sources={sources} />}
         </section>
       )}
       {error && (
@@ -370,7 +420,7 @@ export function GuestChat() {
         !chat.authRequired && (
           <button
             type="button"
-            disabled={pending || loading}
+            disabled={pending || loading || wait.seconds > 0}
             onClick={() => void sendMessage("دوباره جستجو کن")}
             className="mx-5 mb-3 rounded-xl bg-brand-500 px-4 py-3 text-xs font-bold text-white disabled:opacity-40"
           >
@@ -427,7 +477,18 @@ export function GuestChat() {
       >
         <p className="mb-2 text-[10px] leading-5 text-slate-500 dark:text-slate-400">
           {discoveryCountHint}
+          <span className="block">{chatRequestHint}</span>
         </p>
+        {!pending && wait.seconds > 0 && (
+          <p
+            role="status"
+            className="mb-3 rounded-xl bg-brand-500/10 p-3 text-xs text-brand-600 dark:text-brand-200"
+          >
+            {wait.active
+              ? "درخواست قبلی هنوز در حال انجام است؛ نتیجه آن خودکار بررسی می‌شود."
+              : `درخواست بعدی ${wait.seconds.toLocaleString("fa-IR")} ثانیه دیگر؛ متنت حفظ شده است.`}
+          </p>
+        )}
         <div className="flex gap-2">
           <label htmlFor="guest-chat-input" className="sr-only">
             پیام شما
@@ -447,7 +508,12 @@ export function GuestChat() {
             type="submit"
             aria-label="ارسال پیام"
             disabled={
-              pending || loading || !chat || !draft.trim() || chat.authRequired
+              pending ||
+              loading ||
+              !chat ||
+              !draft.trim() ||
+              chat.authRequired ||
+              wait.seconds > 0
             }
             className="self-end rounded-xl bg-brand-500 px-4 py-4 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-40"
           >

@@ -7,6 +7,8 @@ import { useDiscoveryStore } from "@/stores/useDiscoveryStore";
 import { Icon } from "@/components/pathly/Icon";
 import type { SearchContext } from "@/types/chat";
 import { SourceProblems } from "./SourceProblems";
+import { useChatRunStore } from "@/stores/useChatRunStore";
+import { useChatWait } from "@/lib/chat-availability";
 
 export function DiscoveryPanel({
   conversationId,
@@ -19,6 +21,8 @@ export function DiscoveryPanel({
 }) {
   const owner = useAuthStore((state) => state.user?.id);
   const discovery = useDiscoveryStore();
+  const availability = useChatRunStore((state) => state.availability);
+  const wait = useChatWait(availability);
   // PostgreSQL JSONB may reorder keys when committed history replaces the optimistic turn.
   const key = `${owner}:${conversationId}:${JSON.stringify(context, Object.keys(context).sort())}:${trigger}`;
   useEffect(() => {
@@ -38,7 +42,7 @@ export function DiscoveryPanel({
         <button
           type="button"
           onClick={() => void discovery.search()}
-          disabled={discovery.pending}
+          disabled={discovery.pending || wait.seconds > 0}
           className="rounded-lg bg-brand-500/10 px-3 py-2 text-[10px] font-bold text-brand-500 disabled:opacity-40"
         >
           {discovery.pending ? (
@@ -53,6 +57,16 @@ export function DiscoveryPanel({
               : "جستجوی فرصت‌ها"}
         </button>
       </div>
+      {wait.seconds > 0 && (
+        <p
+          role="status"
+          className="mb-2 text-xs text-brand-600 dark:text-brand-200"
+        >
+          {wait.active
+            ? "درخواست قبلی هنوز در حال انجام است."
+            : `جستجوی بعدی ${wait.seconds.toLocaleString("fa-IR")} ثانیه دیگر`}
+        </p>
+      )}
       {discovery.pending && (
         <LoadingState
           title="در حال بررسی آگهی‌ها در سایت‌های کاریابی ایرانی…"
@@ -77,7 +91,9 @@ export function DiscoveryPanel({
           >
             {result.jobs.length
               ? `${result.jobs.length.toLocaleString("fa-IR")} موقعیت مرتبط پیدا شد.`
-              : "آگهی معتبری با شرایط فعلی پیدا نشد."}
+              : result.partial
+                ? "بررسی منابع کامل نشد؛ هنوز آگهی منطبق تأیید نشده است."
+                : "آگهی معتبری با شرایط فعلی پیدا نشد."}
             {result.partial &&
               " بعضی منابع در دسترس نبودند؛ نتایج موجود نمایش داده شده‌اند."}
           </p>

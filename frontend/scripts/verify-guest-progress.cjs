@@ -43,6 +43,12 @@ class GuestChat {
     const state = {
       ...empty,
       remaining: 4,
+      availability: {
+        active: false,
+        activeRunId: null,
+        nextAllowedAt: new Date(Date.now() + 4000).toISOString(),
+        retryAfterSeconds: 4,
+      },
       messages: [
         { id: "u", role: "user", content: "Backend تهران", sequence: 1 },
         {
@@ -63,6 +69,7 @@ class GuestChat {
             failed: true,
             issue: {
               category: "site",
+              stage: "fetch",
               message: "صفحهٔ سایت کاریابی پیام خطای اتصال نشان داد.",
               retryable: true,
             },
@@ -101,7 +108,11 @@ class GuestChat {
       gets = 0,
       release;
     const gate = new Promise((resolve) => {
-      release = resolve;
+      release = () => {
+        state.availability.nextAllowedAt = new Date(Date.now() + 5000).toISOString();
+        state.availability.retryAfterSeconds = 5;
+        resolve();
+      };
     });
     const frame = (type, data) =>
       `event: ${type}\ndata: ${JSON.stringify({ type, data })}\n\n`;
@@ -159,6 +170,14 @@ class GuestChat {
       page.getByRole("complementary", { name: "مشکلات بررسی منابع" }),
     ).toContainText("علت نامشخص");
     assert.equal(posts, 1, "A disconnected stream must not resubmit the turn");
+    await expect(chat.activity().getByLabel("مراحل درخواست")).toBeVisible();
+    await expect(chat.activity()).toContainText(
+      "تکمیل نشد در مرحله «دریافت صفحات»",
+    );
+    await chat.input().fill("متن محفوظ در زمان مکث");
+    await expect(chat.send()).toBeDisabled();
+    await expect(chat.input()).toHaveValue("متن محفوظ در زمان مکث");
+    await expect(chat.send()).toBeEnabled({ timeout: 10000 });
     await chat.submit("ادامه بده");
     await expect(
       page.getByRole("link", { name: "ثبت‌نام و ادامه گفتگو" }),
@@ -173,7 +192,7 @@ class GuestChat {
       "Mobile page must not overflow horizontally",
     );
     console.log(
-      "PASS: guest source progress, site/unknown failures, partial results, lost-stream recovery without reposting, quota gate, mobile layout",
+      "PASS: guest source timeline, known/unknown failure stages, retained results, restored countdown and editable draft, lost-stream recovery without reposting, quota gate, mobile layout",
     );
     await context.close();
   } finally {

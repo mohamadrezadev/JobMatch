@@ -54,7 +54,10 @@ export class GuestChatController {
     string,
     { count: number; until: number }
   >();
-  constructor(private readonly chat: GuestChatService, @Optional() private readonly admission?: ChatAdmissionService) {}
+  constructor(
+    private readonly chat: GuestChatService,
+    @Optional() private readonly admission?: ChatAdmissionService,
+  ) {}
   // Bound session-reset abuse without trusting proxy headers.
   private throttle(request: Request) {
     const now = Date.now();
@@ -90,7 +93,16 @@ export class GuestChatController {
     response.setHeader("Cache-Control", "no-store");
     const raw = token(request);
     const data = await this.chat.get(raw ? hash(raw) : undefined);
-    if (raw && !data.messages.length && data.remaining === 5)
+    const availability = await this.admission?.availability(
+      `guest:${raw ? hash(raw) : "new"}`,
+    );
+    if (
+      raw &&
+      !data.messages.length &&
+      data.remaining === 5 &&
+      !availability?.active &&
+      !availability?.retryAfterSeconds
+    )
       response.clearCookie(cookieName, {
         path: "/api/chat/guest",
         httpOnly: true,
@@ -99,7 +111,7 @@ export class GuestChatController {
       });
     return {
       success: true,
-      data: { ...data, availability: await this.admission?.availability(`guest:${raw ? hash(raw) : "new"}`) },
+      data: { ...data, availability },
     };
   }
   @Post("message")
@@ -129,14 +141,30 @@ export class GuestChatController {
       path: "/api/chat/guest",
     });
     response.setHeader("Cache-Control", "no-store");
-    const key = `guest:${hash(raw)}`, lease = randomUUID();
+    const key = `guest:${hash(raw)}`,
+      lease = randomUUID();
     await this.admission?.reserve(key, lease);
     let searched = false;
     try {
-      const data = await this.chat.send(hash(raw), dto.message.trim(), async (type) => { if (type === "agent.started") searched = true; });
+      const data = await this.chat.send(
+        hash(raw),
+        dto.message.trim(),
+        async (type) => {
+          if (type === "agent.started") searched = true;
+        },
+      );
       await this.admission?.release(key, lease, searched);
-      return { success: true, data: { ...data, availability: await this.admission?.availability(key) } };
-    } catch (error) { await this.admission?.release(key, lease, searched); throw error; }
+      return {
+        success: true,
+        data: {
+          ...data,
+          availability: await this.admission?.availability(key),
+        },
+      };
+    } catch (error) {
+      await this.admission?.release(key, lease, searched);
+      throw error;
+    }
   }
   @Post("message/stream")
   @HttpCode(200)
@@ -159,16 +187,15 @@ export class GuestChatController {
       maxAge: 86400000,
       path: "/api/chat/guest",
     });
-    const key = `guest:${hash(raw)}`, lease = randomUUID();
+    const key = `guest:${hash(raw)}`,
+      lease = randomUUID();
     await this.admission?.reserve(key, lease);
     let searched = false;
-    response
-      .status(200)
-      .set({
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-store, no-transform",
-        "X-Accel-Buffering": "no",
-      });
+    response.status(200).set({
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-store, no-transform",
+      "X-Accel-Buffering": "no",
+    });
     response.flushHeaders();
     let closed = false;
     const close = () => {
@@ -190,10 +217,18 @@ export class GuestChatController {
       // Disconnection does not resubmit or discard a successful committed turn.
       const data = await this.chat.send(hash(raw), dto.message.trim(), publish);
       await this.admission?.release(key, lease, searched);
-      await publish("guest.completed", { state: { ...data, availability: await this.admission?.availability(key) } });
+      await publish("guest.completed", {
+        state: {
+          ...data,
+          availability: await this.admission?.availability(key),
+        },
+      });
     } catch (error) {
       await this.admission?.release(key, lease, searched);
-      await publish("guest.failed", { ...chatFailure(error), availability: await this.admission?.availability(key) });
+      await publish("guest.failed", {
+        ...chatFailure(error),
+        availability: await this.admission?.availability(key),
+      });
     } finally {
       clearInterval(heartbeat);
       response.off("close", close);

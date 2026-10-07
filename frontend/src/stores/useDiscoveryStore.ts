@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import apiClient from "@/lib/api-client";
 import type { DiscoveryResult } from "@/types/discovery";
+import { admissionDetails } from "@/lib/chat-availability";
+import { useChatRunStore } from "./useChatRunStore";
 
 interface State {
   key: string;
@@ -30,8 +32,13 @@ function result(value: unknown): DiscoveryResult | null {
   return value as DiscoveryResult;
 }
 function message(failure: unknown) {
+  if (admissionDetails(failure).message)
+    return admissionDetails(failure).message!;
   const transport = failure as { response?: unknown; code?: string };
-  if (!transport.response && ["ERR_NETWORK", "ECONNABORTED", "ETIMEDOUT"].includes(transport.code ?? ""))
+  if (
+    !transport.response &&
+    ["ERR_NETWORK", "ECONNABORTED", "ETIMEDOUT"].includes(transport.code ?? "")
+  )
     return "ارتباط با سرور هنگام دریافت نتیجه قطع شد. گفتگو محفوظ است؛ برای دریافت نتیجه دوباره تلاش کن.";
   const code = (
     failure as { response?: { data?: { error?: { code?: string } } } }
@@ -42,7 +49,8 @@ function message(failure: unknown) {
         JOB_DISCOVERY_UNAVAILABLE:
           "منابع جستجو در این نوبت پاسخ قابل استفاده ندادند. گفتگو محفوظ است؛ کمی بعد دوباره تلاش کن.",
         SEARCH_ROLE_REQUIRED: "ابتدا در گفتگو بگو دنبال چه شغلی هستی.",
-        CONVERSATION_NOT_FOUND: "این گفتگو در حساب فعلی پیدا نشد. گفتگو را از تاریخچه دوباره باز کن.",
+        CONVERSATION_NOT_FOUND:
+          "این گفتگو در حساب فعلی پیدا نشد. گفتگو را از تاریخچه دوباره باز کن.",
         JOB_SEARCH_PROVIDER_UNAVAILABLE:
           "سرویس جستجوی آگهی هنوز فعال نشده است. ترجیحاتت در گفتگو محفوظ است.",
         JOB_FETCH_PROVIDER_UNAVAILABLE: "سرویس خواندن آگهی‌ها هنوز آماده نیست.",
@@ -103,7 +111,7 @@ export const useDiscoveryStore = create<State>((set, get) => ({
   search: async () => {
     const { conversationId, pending, generation } = get();
     if (!conversationId || pending) return;
-    set({ pending: true, error: null, result: null });
+    set({ pending: true, error: null });
     try {
       const response = await apiClient.post<{ data: DiscoveryResult }>(
         "/api/job-discovery/search",
@@ -114,26 +122,34 @@ export const useDiscoveryStore = create<State>((set, get) => ({
         set({ result: result(response.data.data) });
     } catch (error) {
       if (generation !== get().generation) return;
+      const details = admissionDetails(error);
+      if (details.availability)
+        useChatRunStore.setState({ availability: details.availability });
       // A disconnected response does not imply that the server failed to save
       // the run. Restore the same owned context before reporting a transport error.
-      const status = (error as { response?: { status?: number } }).response?.status;
+      const status = (error as { response?: { status?: number } }).response
+        ?.status;
       if (status == null || status >= 500 || status === 409) {
         try {
-          const restored = await apiClient.get<{ data: DiscoveryResult | null }>(
-            `/api/job-discovery/conversations/${conversationId}/latest`,
-            { timeout: 10000 },
-          );
+          const restored = await apiClient.get<{
+            data: DiscoveryResult | null;
+          }>(`/api/job-discovery/conversations/${conversationId}/latest`, {
+            timeout: 10000,
+          });
           if (generation !== get().generation) return;
           const saved = result(restored.data.data);
           if (saved) {
             set({ result: saved, error: null });
             return;
           }
-        } catch { /* Keep the original failure when recovery is unavailable. */ }
+        } catch {
+          /* Keep the original failure when recovery is unavailable. */
+        }
       }
       if (generation === get().generation) set({ error: message(error) });
     } finally {
       if (generation === get().generation) set({ pending: false });
+      void useChatRunStore.getState().loadAvailability();
     }
   },
 }));
