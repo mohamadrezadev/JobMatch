@@ -3,7 +3,9 @@ const { chromium, expect } = require("@playwright/test");
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
 const path = require("node:path");
-require("../../backend/node_modules/@nestjs/config").ConfigModule.forRoot({ envFilePath: path.resolve(__dirname, "../../backend/.env") });
+require("../../backend/node_modules/@nestjs/config").ConfigModule.forRoot({
+  envFilePath: path.resolve(__dirname, "../../backend/.env"),
+});
 const { PrismaClient } = require("../../backend/node_modules/@prisma/client");
 const db = new PrismaClient();
 (async () => {
@@ -13,36 +15,87 @@ const db = new PrismaClient();
   try {
     const page = await context.newPage();
     page.setDefaultTimeout(90000);
-    await page.goto((process.env.JOBMATCH_PREVIEW_URL || "http://localhost:3001") + "/chat");
+    await page.goto(
+      (process.env.JOBMATCH_PREVIEW_URL || "http://localhost:3001") + "/chat",
+    );
     const input = page.getByRole("textbox", { name: "پیام شما", exact: true });
     const send = page.getByRole("button", { name: "ارسال پیام", exact: true });
     await expect(send).toBeDisabled();
     await input.fill("فقط حضوری، حداقل حقوق ۳۰ میلیون");
     await expect(send).toBeEnabled();
     await send.click();
-    await expect(page.getByText(/دنبال چه عنوان شغلی/)).toBeVisible();
+    await expect(page.getByText(/دنبال چه عنوان شغلی/)).toBeVisible({
+      timeout: 90000,
+    });
     await input.fill("حسابدار");
-    const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/chat/guest/message") && response.request().postDataJSON()?.message === "حسابدار");
+    const responsePromise = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/chat/guest/message/stream") &&
+        response.request().postDataJSON()?.message === "حسابدار",
+    );
     await send.click();
-    await expect(page.getByText(/منابع شغلی همزمان جستجو می‌شوند/)).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "فعالیت اجرای درخواست" }),
+    ).toBeVisible();
     const response = await responsePromise;
     assert.equal(response.status(), 200);
-    const state = (await response.json()).data;
+    await expect(
+      page.getByRole("region", { name: "نتایج جستجوی مهمان" }),
+    ).toBeVisible({ timeout: 90000 });
+    // Chrome does not reliably expose completed SSE response bodies. Read the
+    // cookie-bound committed state after the UI has consumed the final event.
+    const restored = await context.request.get(
+      response.url().replace(/\/message\/stream$/, ""),
+    );
+    assert.equal(restored.status(), 200);
+    const state = (await restored.json()).data;
     assert.equal(state.context.searchContext.minimumSalary, 30000000);
     assert.deepEqual(state.context.searchContext.workTypes, ["OnSite"]);
-    assert.ok(state.discovery, "The app must return a discovery result after the role message");
-    await expect(page.getByRole("region", { name: "نتایج جستجوی مهمان" })).toBeVisible();
-    assert.equal(await page.getByRole("link", { name: "مشاهده آگهی اصلی", exact: true }).count(), state.discovery.jobs.length);
-    const cookie = (await context.cookies()).find((value) => value.name === "jobmatch_guest");
+    assert.ok(
+      state.discovery,
+      "The app must return a discovery result after the role message",
+    );
+    await expect(
+      page.getByRole("region", { name: "نتایج جستجوی مهمان" }),
+    ).toBeVisible();
+    assert.equal(
+      await page
+        .getByRole("link", { name: "مشاهده آگهی اصلی", exact: true })
+        .count(),
+      state.discovery.jobs.length,
+    );
+    const cookie = (await context.cookies()).find(
+      (value) => value.name === "jobmatch_guest",
+    );
     assert.ok(cookie, "Browser must retain the guest session cookie");
     tokenHash = createHash("sha256").update(cookie.value).digest("hex");
     await page.reload();
-    await expect(page.getByRole("region", { name: "نتایج جستجوی مهمان" })).toBeVisible();
-    console.log(JSON.stringify({ status: "PASS", source: "real browser and API", jobs: state.discovery.jobs.length, partial: state.discovery.partial, error: state.discovery.error, cookieAndRefresh: "PASS" }));
+    await expect(
+      page.getByRole("region", { name: "نتایج جستجوی مهمان" }),
+    ).toBeVisible();
+    console.log(
+      JSON.stringify({
+        status: "PASS",
+        source: "real browser and API",
+        jobs: state.discovery.jobs.length,
+        partial: state.discovery.partial,
+        error: state.discovery.error,
+        cookieAndRefresh: "PASS",
+      }),
+    );
   } finally {
+    const cookie = (await context.cookies()).find(
+      (value) => value.name === "jobmatch_guest",
+    );
+    if (!tokenHash && cookie)
+      tokenHash = createHash("sha256").update(cookie.value).digest("hex");
     await context.close();
     await browser.close();
-    if (tokenHash) await db.guestChatSession.deleteMany({ where: { tokenHash } });
+    if (tokenHash)
+      await db.guestChatSession.deleteMany({ where: { tokenHash } });
     await db.$disconnect();
   }
-})().catch((error) => { console.error(error.message); process.exitCode = 1; });
+})().catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+});

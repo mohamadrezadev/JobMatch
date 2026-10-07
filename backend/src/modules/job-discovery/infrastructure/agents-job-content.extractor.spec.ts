@@ -51,8 +51,32 @@ describe("Evidence-checked agents extraction", () => {
     });
     expect(complete).toHaveBeenCalledWith(
       expect.objectContaining({ model: "agents" }),
-      expect.objectContaining({ signal, timeout: 4000, maxRetries: 0 }),
+      expect.objectContaining({ signal, timeout: 8000, maxRetries: 0 }),
     );
+  });
+  it("skips browser error screens without spending an LLM request", async () => {
+    expect(
+      await extractor.extract(
+        "#### خطا در اتصال به سرور - Connection Error\nPlease refresh",
+        "https://jobvision.ir/jobs/1",
+        signal,
+      ),
+    ).toBeNull();
+    expect(complete).not.toHaveBeenCalled();
+  });
+  it("bounds configured extraction time and retains caller cancellation", async () => {
+    complete.mockResolvedValue(reply({ isJobPosting: false }));
+    const bounded = new AgentsJobContentExtractor(
+      { chat: { completions: { create: complete } } } as unknown as OpenAI,
+      "agents",
+      60000,
+    );
+    await bounded.extract(content, "https://jobvision.ir/jobs/1", signal);
+    expect(complete).toHaveBeenCalledWith(expect.anything(), {
+      signal,
+      timeout: 12000,
+      maxRetries: 0,
+    });
   });
   it("rejects fabricated company/title and non-posting pages", async () => {
     complete.mockResolvedValueOnce(

@@ -1,5 +1,6 @@
 import { ConversationContext } from "./conversation";
 import { DiscoveredJob } from "../../job-discovery/domain/discovery";
+import { DiscoveryIssue } from "../../job-discovery/domain/discovery-issue";
 
 export interface GuestDiscovery {
   jobs: Array<
@@ -23,9 +24,11 @@ export interface GuestDiscovery {
     accepted: number;
     rejected: number;
     failed: boolean;
+    issue?: DiscoveryIssue;
   }>;
   partial: boolean;
   error?: string;
+  issue?: DiscoveryIssue;
 }
 
 export const GUEST_MESSAGE_LIMIT = 5;

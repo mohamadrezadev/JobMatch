@@ -1,5 +1,6 @@
 import { createServer, Server } from "node:http";
 import { AddressInfo } from "node:net";
+import { AxiosError, AxiosInstance } from "axios";
 import { NineRouterClient, RouterConfig } from "./nine-router.client";
 
 describe("Installed 9Router web API contract", () => {
@@ -9,6 +10,7 @@ describe("Installed 9Router web API contract", () => {
   let finalUrl: string | undefined,
     links: unknown[] = [];
   let provider = "tinyfish";
+  let failures: number[] = [];
   const requests: Array<{ path: string; body: any; authorization?: string }> =
     [];
   beforeAll(async () => {
@@ -22,6 +24,11 @@ describe("Installed 9Router web API contract", () => {
         authorization: req.headers.authorization,
       });
       res.setHeader("Content-Type", "application/json");
+      if (req.url === "/v1/web/fetch" && failures.length) {
+        res.statusCode = failures.shift()!;
+        res.end(JSON.stringify({ error: "[tinyfish] empty_content" }));
+        return;
+      }
       res.end(
         JSON.stringify(
           req.url === "/v1/models/web"
@@ -68,6 +75,7 @@ describe("Installed 9Router web API contract", () => {
     finalUrl = undefined;
     links = [];
     provider = "tinyfish";
+    failures = [];
   });
   it("uses bare search results and content.text, sends the key only to the router", async () => {
     const client = new NineRouterClient(config),
@@ -101,6 +109,92 @@ describe("Installed 9Router web API contract", () => {
       max_characters: 200000,
       include_links: true,
     });
+  });
+  it("retries a transient fetch once and preserves the real final URL", async () => {
+    failures = [502];
+    finalUrl = "https://jobvision.ir/jobs/1";
+    const page = await new NineRouterClient({
+      ...config,
+      fetchModel: "tinyfish",
+    }).fetch(finalUrl, new AbortController().signal);
+    expect(page.url).toBe(finalUrl);
+    expect(requests).toHaveLength(2);
+  });
+  it("bounds retries and exposes only a safe code/status, not upstream content", async () => {
+    failures = [502, 502, 502];
+    await expect(
+      new NineRouterClient(config).fetch(
+        "https://jobvision.ir/jobs/1",
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      code: "FETCH_EMPTY_CONTENT",
+      attempts: 2,
+      upstreamStatus: 502,
+    });
+    expect(requests).toHaveLength(2);
+  });
+  it.each([401, 403, 404, 429])("does not retry HTTP %s", async (status) => {
+    failures = [status];
+    await expect(
+      new NineRouterClient(config).fetch(
+        "https://jobvision.ir/jobs/1",
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      code: `FETCH_HTTP_${status}`,
+      upstreamStatus: status,
+      attempts: 1,
+    });
+    expect(requests).toHaveLength(1);
+  });
+  it("does not start a fetch after cancellation", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      new NineRouterClient(config).fetch(
+        "https://jobvision.ir/jobs/1",
+        controller.signal,
+      ),
+    ).rejects.toBeDefined();
+    expect(requests).toHaveLength(0);
+  });
+  it("shares one page deadline between timeout retries", async () => {
+    const client = new NineRouterClient(config);
+    const post = jest
+      .spyOn((client as unknown as { http: AxiosInstance }).http, "post")
+      .mockRejectedValue(new AxiosError("request timed out", "ECONNABORTED"));
+    await expect(
+      client.fetch("https://jobvision.ir/jobs/1", new AbortController().signal),
+    ).rejects.toMatchObject({ code: "FETCH_TIMEOUT", attempts: 2 });
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls[0][2]?.timeout).toBeLessThanOrEqual(650);
+    expect(post.mock.calls[1][2]?.timeout).toBeLessThanOrEqual(
+      config.fetchTimeout,
+    );
+  });
+  it("does not retry when cancellation happens during an attempt", async () => {
+    const client = new NineRouterClient(config),
+      controller = new AbortController();
+    const post = jest
+      .spyOn((client as unknown as { http: AxiosInstance }).http, "post")
+      .mockImplementation(async () => {
+        controller.abort();
+        throw new AxiosError("request canceled", "ERR_CANCELED");
+      });
+    await expect(
+      client.fetch("https://jobvision.ir/jobs/1", controller.signal),
+    ).rejects.toBeDefined();
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+  it("does not retry responses missing required provenance", async () => {
+    await expect(
+      new NineRouterClient({ ...config, fetchModel: "tinyfish" }).fetch(
+        "https://jobvision.ir/jobs/1",
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ code: "FETCH_PROVENANCE_MISSING" });
+    expect(requests).toHaveLength(1);
   });
   it("stops before search/fetch if no search provider is configured", async () => {
     available = false;

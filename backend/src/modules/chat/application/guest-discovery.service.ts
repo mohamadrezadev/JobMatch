@@ -1,7 +1,18 @@
 import { JobSearchIntent } from "../domain/conversation";
 import { GuestDiscovery } from "../domain/guest-conversation";
 import { AgentSearchService } from "../../job-discovery/application/agent-search.service";
-import { salaryConfirmed } from "../../job-discovery/domain/discovery";
+import {
+  salaryConfirmed,
+  DiscoveryError,
+} from "../../job-discovery/domain/discovery";
+import {
+  publicSource,
+  discoveryIssue,
+} from "../../job-discovery/domain/discovery-issue";
+export type GuestProgress = (
+  type: string,
+  data: Record<string, unknown>,
+) => Promise<void>;
 
 export class GuestDiscoveryService {
   constructor(
@@ -9,7 +20,10 @@ export class GuestDiscoveryService {
     private readonly timeout = 60000,
   ) {}
 
-  async search(goal: JobSearchIntent): Promise<GuestDiscovery> {
+  async search(
+    goal: JobSearchIntent,
+    publish?: GuestProgress,
+  ): Promise<GuestDiscovery> {
     const controller = new AbortController();
     const deadline = Date.now() + this.timeout;
     const timer = setTimeout(() => controller.abort(), this.timeout);
@@ -17,8 +31,20 @@ export class GuestDiscoveryService {
       const result = await this.agent.search(
         goal,
         controller.signal,
-        undefined,
-        undefined,
+        publish
+          ? {
+              sourceStarted: (source) => publish("source.started", { source }),
+              sourceProgress: (source, stage) =>
+                publish("source.progress", { source, stage }),
+              sourceCompleted: (report) =>
+                publish(
+                  report.error ? "source.failed" : "source.completed",
+                  publicSource(report),
+                ),
+              jobCandidate: async () => true,
+            }
+          : undefined,
+        publish,
         deadline,
       );
       const jobs = result.jobs.map((job) => ({
@@ -43,15 +69,10 @@ export class GuestDiscoveryService {
       }));
       return {
         jobs,
-        sources: result.sources.map(
-          ({ source, found, accepted, rejected, error }) => ({
-            source,
-            found,
-            accepted,
-            rejected,
-            failed: Boolean(error),
-          }),
-        ),
+        sources: result.sources.map((report) => ({
+          ...publicSource(report),
+          failed: Boolean(report.error),
+        })),
         partial: result.partial,
         ...(!jobs.length &&
         (!result.sources.length ||
@@ -60,12 +81,17 @@ export class GuestDiscoveryService {
           ? { error: "JOB_DISCOVERY_UNAVAILABLE" }
           : {}),
       };
-    } catch {
+    } catch (error) {
+      const code =
+        error instanceof DiscoveryError
+          ? error.code
+          : "JOB_DISCOVERY_UNAVAILABLE";
       return {
         jobs: [],
         sources: [],
         partial: true,
-        error: "JOB_DISCOVERY_UNAVAILABLE",
+        error: code,
+        issue: discoveryIssue(code),
       };
     } finally {
       clearTimeout(timer);

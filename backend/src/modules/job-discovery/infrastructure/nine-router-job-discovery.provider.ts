@@ -1,4 +1,7 @@
 import { JobSearchIntent } from "../../chat/domain/conversation";
+import { Logger } from "@nestjs/common";
+import axios from "axios";
+import { APIConnectionTimeoutError, APIError } from "openai";
 import {
   JobDiscoveryProvider,
   JobContentExtractor,
@@ -14,11 +17,70 @@ import {
   DiscoveryError,
   normalizeText,
 } from "../domain/discovery";
-import { normalizeJob, explicitlyClosed } from "../domain/job-normalizer";
+import {
+  normalizeJob,
+  explicitlyClosed,
+  pageFailureCode,
+} from "../domain/job-normalizer";
 import { NineRouterClient } from "./nine-router.client";
 import { SourceValidator } from "./source-validator";
 
 export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
+  private readonly logger = new Logger(NineRouterJobDiscoveryProvider.name);
+  private failure(
+    report: SourceReport,
+    error: unknown,
+    stage: string,
+    started: number,
+    signal: AbortSignal,
+    url?: string,
+  ) {
+    const transport = axios.isAxiosError(error) ? error : undefined;
+    const detail = error as {
+      attempts?: number;
+      upstreamStatus?: number;
+    } | null;
+    const code = signal.aborted
+      ? "TIMEOUT"
+      : error instanceof DiscoveryError
+        ? error.code
+        : stage === "search"
+          ? "SEARCH_FAILED"
+          : error instanceof APIConnectionTimeoutError
+            ? "EXTRACTION_TIMEOUT"
+            : stage === "extract" && error instanceof APIError && error.status
+              ? `EXTRACTION_HTTP_${error.status}`
+              : stage === "extract"
+                ? "EXTRACTION_FAILED"
+                : "FETCH_OR_VALIDATION_FAILED";
+    report.error = code;
+    let page: string | undefined;
+    if (url) {
+      try {
+        const target = new URL(url);
+        page =
+          target.hostname === "vertexaisearch.cloud.google.com"
+            ? target.origin + "/grounding-api-redirect/[redacted]"
+            : target.origin + target.pathname;
+      } catch {
+        /* No untrusted text in logs. */
+      }
+    }
+    this.logger.warn(
+      JSON.stringify({
+        source: report.source,
+        stage,
+        code,
+        page,
+        durationMs: Date.now() - started,
+        attempts: detail?.attempts,
+        httpStatus:
+          detail?.upstreamStatus ??
+          transport?.response?.status ??
+          (error instanceof APIError ? error.status : undefined),
+      }),
+    );
+  }
   constructor(
     private readonly client: NineRouterClient,
     private readonly validator: SourceValidator,
@@ -58,12 +120,20 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
             rejected: 0,
           };
         reports.push(report);
+        const stages = new Set<string>();
+        const phase = async (stage: "fetch" | "extract" | "filter") => {
+          if (!stages.has(stage) && !signal.aborted) {
+            stages.add(stage);
+            await progress?.sourceProgress?.(source, stage);
+          }
+        };
         await progress?.sourceStarted(source);
         if (budget.remainingFetches <= 0 || signal.aborted) {
           if (signal.aborted) report.error = "TIMEOUT";
           await progress?.sourceCompleted({ ...report });
           return;
         }
+        const searchStarted = Date.now();
         try {
           const urls = [
             ...new Set(await this.client.search(query, source, signal)),
@@ -87,6 +157,9 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
             );
             await Promise.all(
               batch.map(async (url) => {
+                let stage = "validate";
+                let diagnosticUrl = url;
+                const started = Date.now();
                 if (signal.aborted) return;
                 if (!this.validator.searchCandidate(url)) {
                   report.rejected++;
@@ -123,6 +196,8 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                   if (budget.remainingFetches <= 0) return;
                   budget.remainingFetches--;
                   fetches++;
+                  stage = "fetch";
+                  await phase("fetch");
                   const page = await this.client.fetch(resolved, signal);
                   if (signal.aborted) return;
                   if (
@@ -134,6 +209,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                     report.rejected++;
                     return;
                   }
+                  stage = "validate";
                   await this.validator.validate(page.url, signal);
                   const finalIdentity = canonicalUrl(page.url);
                   if (
@@ -142,6 +218,10 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                   )
                     return;
                   seen.add(finalIdentity);
+                  diagnosticUrl = page.url;
+                  stage = "page";
+                  const pageError = pageFailureCode(page.content);
+                  if (pageError) throw new DiscoveryError(pageError, 502);
                   if (!jobDetailUrl(page.url)) {
                     const details: string[] = [];
                     for (const link of page.links ?? []) {
@@ -202,6 +282,8 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                     report.rejected++;
                     return;
                   }
+                  stage = "extract";
+                  await phase("extract");
                   const job =
                     normalizeJob(page.content, canonicalUrl(page.url)) ??
                     (await this.extractor?.extract(
@@ -210,10 +292,10 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                       signal,
                     ));
                   if (!job) {
-                    report.rejected++;
-                    return;
+                    throw new DiscoveryError("EXTRACTION_NO_POSTING", 502);
                   }
                   if (signal.aborted) return;
+                  await phase("filter");
                   jobs.push(job);
                   report.evaluated = (report.evaluated ?? 0) + 1;
                   if (!progress || (await progress.jobCandidate(job)))
@@ -221,17 +303,20 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                   else report.rejected++;
                 } catch (error) {
                   report.rejected++;
-                  report.error = signal.aborted
-                    ? "TIMEOUT"
-                    : error instanceof DiscoveryError
-                      ? error.code
-                      : "FETCH_OR_VALIDATION_FAILED";
+                  this.failure(
+                    report,
+                    error,
+                    stage,
+                    started,
+                    signal,
+                    diagnosticUrl,
+                  );
                 }
               }),
             );
           }
-        } catch {
-          report.error = signal.aborted ? "TIMEOUT" : "SEARCH_FAILED";
+        } catch (error) {
+          this.failure(report, error, "search", searchStarted, signal);
         }
         await progress?.sourceCompleted({ ...report });
       }),

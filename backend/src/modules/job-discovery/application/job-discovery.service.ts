@@ -10,19 +10,13 @@ import {
 import { DiscoveryRepository, JobDiscoveryProvider } from "./discovery.ports";
 import { AgentSearchService } from "./agent-search.service";
 import { AgentPlannerService } from "./agent-planner.service";
+import { publicSource } from "../domain/discovery-issue";
 
 export interface LiveDiscovery {
   publish(type: string, data: Record<string, unknown>): Promise<void>;
   contextVersion: number;
 }
-const publicSources = (sources: SourceReport[]) =>
-  sources.map(({ source, found, accepted, rejected, error }) => ({
-    source,
-    found,
-    accepted,
-    rejected,
-    ...(error ? { failed: true } : {}),
-  }));
+const publicSources = (sources: SourceReport[]) => sources.map(publicSource);
 
 export class JobDiscoveryService {
   constructor(
@@ -101,6 +95,8 @@ export class JobDiscoveryService {
         controller.signal,
         live
           ? {
+              sourceProgress: (source, stage) =>
+                live.publish("source.progress", { source, stage }),
               sourceStarted: (source) =>
                 live.publish("source.started", { source }),
               sourceCompleted: (report) =>

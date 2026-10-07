@@ -1,6 +1,20 @@
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { GuestChat } from "./GuestChat";
+import { sendGuestMessage } from "@/lib/guest-chat-stream";
+jest.mock("@/lib/guest-chat-stream", () => ({
+  sendGuestMessage: jest.fn(async (message: string) => {
+    const { guestChatClient } = require("@/lib/guest-chat-client");
+    return (await guestChatClient.post("/api/chat/guest/message", { message }))
+      .data.data;
+  }),
+}));
 import {
   guestChatClient,
   guestDraftKey,
@@ -136,7 +150,7 @@ describe("Guest conversation", () => {
     const send = screen.getByRole("button", { name: "ارسال پیام" });
     await waitFor(() => expect(send).toBeEnabled());
     fireEvent.click(send);
-    await screen.findByText(/منابع شغلی همزمان جستجو می‌شوند/);
+    await screen.findByText(/در حال بررسی عنوان شغلی، شهر و شرایط شما/);
     resolveMessage({
       data: {
         data: {
@@ -173,18 +187,151 @@ describe("Guest conversation", () => {
     ).toHaveAttribute("href", "https://jobinja.ir/jobs/1");
     expect(screen.getByText(/۳۵٬۰۰۰٬۰۰۰ تومان/)).toBeInTheDocument();
   });
-  it("starts discovery for an already prepared guest conversation", async () => {
-    const prepared = { ...empty, remaining: 3, context: { ...empty.context,
-      searchContext: { targetRoles: ["حسابدار"], workTypes: ["OnSite"], minimumSalary: 30000000 },
-    } };
-    (guestChatClient.get as jest.Mock).mockResolvedValue({ data: { data: prepared } });
-    (guestChatClient.post as jest.Mock).mockResolvedValue({ data: { data: { ...prepared,
-      discovery: { jobs: [], sources: [], partial: false },
-    } } });
+  it("shows real source phases and provider/site failures while retaining healthy results", async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    (sendGuestMessage as jest.Mock).mockImplementationOnce(
+      async (_message, receive) => {
+        receive({
+          type: "source.progress",
+          data: { source: "jobvision.ir", stage: "extract" },
+        });
+        await gate;
+        receive({
+          type: "source.failed",
+          data: {
+            source: "e-estekhdam.com",
+            issue: {
+              category: "site",
+              message: "صفحه سایت خطای اتصال نشان داد.",
+              retryable: true,
+            },
+          },
+        });
+        return {
+          ...empty,
+          discovery: {
+            jobs: [],
+            partial: true,
+            sources: [
+              {
+                source: "e-estekhdam.com",
+                failed: true,
+                found: 1,
+                accepted: 0,
+                rejected: 1,
+                issue: {
+                  category: "site",
+                  message: "صفحه سایت خطای اتصال نشان داد.",
+                  retryable: true,
+                },
+              },
+              {
+                source: "irantalent.com",
+                failed: true,
+                found: 1,
+                accepted: 0,
+                rejected: 1,
+                issue: {
+                  category: "provider",
+                  message: "سرویس دریافت پاسخ معتبر نداد.",
+                  retryable: true,
+                },
+              },
+            ],
+          },
+        };
+      },
+    );
     render(<GuestChat />);
-    const start = await screen.findByRole("button", { name: "جستجوی فرصت‌های شغلی" });
+    fireEvent.change(screen.getByLabelText("پیام شما"), {
+      target: { value: "Backend" },
+    });
+    const send = screen.getByRole("button", { name: "ارسال پیام" });
+    await waitFor(() => expect(send).toBeEnabled());
+    fireEvent.click(send);
+    await screen.findAllByText(/جاب‌ویژن: در حال استخراج اطلاعات/);
+    await act(async () => {
+      finish();
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText("مشکلات بررسی منابع")).toHaveTextContent(
+        /ایران‌تلنت.*خطای سرویس/,
+      ),
+    );
+    expect(screen.getByLabelText("مشکلات بررسی منابع")).toHaveTextContent(
+      /ای‌استخدام.*خطای صفحهٔ سایت/,
+    );
+  });
+  it("recovers a committed matching turn after losing the stream without posting twice", async () => {
+    (sendGuestMessage as jest.Mock).mockRejectedValueOnce(
+      new Error("stream lost"),
+    );
+    (guestChatClient.get as jest.Mock)
+      .mockResolvedValueOnce({ data: { data: empty } })
+      .mockResolvedValueOnce({
+        data: {
+          data: {
+            ...empty,
+            remaining: 4,
+            messages: [
+              { id: "u", role: "user", content: "Backend" },
+              { id: "a", role: "assistant", content: "پاسخ ذخیره‌شده" },
+            ],
+          },
+        },
+      });
+    render(<GuestChat />);
+    fireEvent.change(screen.getByLabelText("پیام شما"), {
+      target: { value: "Backend" },
+    });
+    const send = screen.getByRole("button", { name: "ارسال پیام" });
+    await waitFor(() => expect(send).toBeEnabled());
+    fireEvent.click(send);
+    await screen.findByText("پاسخ ذخیره‌شده");
+    expect(
+      screen.getByRole("textbox", { name: "پیام شما" }),
+    ).toHaveValue("");
+    expect(sendGuestMessage).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+  it("starts discovery for an already prepared guest conversation", async () => {
+    const prepared = {
+      ...empty,
+      remaining: 3,
+      context: {
+        ...empty.context,
+        searchContext: {
+          targetRoles: ["حسابدار"],
+          workTypes: ["OnSite"],
+          minimumSalary: 30000000,
+        },
+      },
+    };
+    (guestChatClient.get as jest.Mock).mockResolvedValue({
+      data: { data: prepared },
+    });
+    (guestChatClient.post as jest.Mock).mockResolvedValue({
+      data: {
+        data: {
+          ...prepared,
+          discovery: { jobs: [], sources: [], partial: false },
+        },
+      },
+    });
+    render(<GuestChat />);
+    const start = await screen.findByRole("button", {
+      name: "جستجوی فرصت‌های شغلی",
+    });
     fireEvent.click(start);
-    await waitFor(() => expect(guestChatClient.post).toHaveBeenCalledWith("/api/chat/guest/message", { message: "دوباره جستجو کن" }));
+    await waitFor(() =>
+      expect(guestChatClient.post).toHaveBeenCalledWith(
+        "/api/chat/guest/message",
+        { message: "دوباره جستجو کن" },
+      ),
+    );
     await screen.findByRole("region", { name: "نتایج جستجوی مهمان" });
   });
 });

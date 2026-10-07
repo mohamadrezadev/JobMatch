@@ -7,6 +7,10 @@ import {
 } from "../domain/discovery";
 
 export interface DiscoveryProgress {
+  sourceProgress?(
+    source: string,
+    stage: "fetch" | "extract" | "filter",
+  ): Promise<void>;
   sourceStarted(source: string): Promise<void>;
   sourceCompleted(report: SourceReport): Promise<void>;
   jobCandidate(job: DiscoveredJob): Promise<boolean>;

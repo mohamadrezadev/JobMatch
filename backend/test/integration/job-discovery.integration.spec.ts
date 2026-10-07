@@ -252,9 +252,13 @@ databaseSuite("Job discovery HTTP + mock 9Router + real PostgreSQL", () => {
     expect(fetched).toHaveLength(4);
     expect(fetched.every((url) => !url.includes("linkedin"))).toBe(true);
     expect(await prisma.job.count({ where: { company: marker } })).toBe(1);
+    // The agent can search multiple title variants before the result is cached.
+    // Cache reuse must add no provider requests, regardless of initial rounds.
+    const searchesBeforeCache = searchCount;
+    expect(searchesBeforeCache).toBeGreaterThan(0);
     const cached = await request({ conversationId }, owner);
     expect(((await cached.json()) as Envelope).data.cached).toBe(true);
-    expect(searchCount).toBe(4);
+    expect(searchCount).toBe(searchesBeforeCache);
     const latest = await fetch(
       base + `/api/job-discovery/conversations/${conversationId}/latest`,
       { headers: { Authorization: "Bearer " + token(owner) } },

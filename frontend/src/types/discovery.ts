@@ -1,3 +1,8 @@
+export interface DiscoveryIssue {
+  category: "site" | "provider" | "extraction" | "timeout" | "unknown";
+  message: string;
+  retryable: boolean;
+}
 export interface DiscoveryJob {
   id: string;
   title: string;
@@ -26,5 +31,6 @@ export interface DiscoveryResult {
     accepted: number;
     rejected: number;
     error?: string;
+    issue?: DiscoveryIssue;
   }>;
 }

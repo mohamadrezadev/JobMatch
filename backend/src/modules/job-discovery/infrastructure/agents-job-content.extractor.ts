@@ -1,12 +1,18 @@
 import OpenAI from "openai";
 import { JobContentExtractor } from "../application/discovery.ports";
 import { DiscoveredJob, normalizeText } from "../domain/discovery";
-import { plainText, parseSalary, workType } from "../domain/job-normalizer";
+import {
+  plainText,
+  parseSalary,
+  workType,
+  pageFailureCode,
+} from "../domain/job-normalizer";
 
 export class AgentsJobContentExtractor extends JobContentExtractor {
   constructor(
     private readonly client: OpenAI,
     private readonly model: string,
+    private readonly timeoutMs = 8000,
   ) {
     super();
   }
@@ -15,6 +21,7 @@ export class AgentsJobContentExtractor extends JobContentExtractor {
     url: string,
     signal: AbortSignal,
   ): Promise<DiscoveredJob | null> {
+    if (pageFailureCode(content)) return null;
     // This fallback handles stripped Markdown for a single validated job page,
     // never search snippets, generated search answers or listing pages.
     const source = plainText(content)?.slice(0, 30000);
@@ -36,7 +43,11 @@ export class AgentsJobContentExtractor extends JobContentExtractor {
           },
         ],
       },
-      { signal, timeout: 4000, maxRetries: 0 },
+      {
+        signal,
+        timeout: Math.max(1000, Math.min(12000, this.timeoutMs)),
+        maxRetries: 0,
+      },
     );
     let raw: Record<string, unknown>;
     try {

@@ -193,7 +193,10 @@ module.exports = (async () => {
               reasonCode: "INITIAL_SEARCH",
               reasoning: "PRIVATE_REASONING_MUST_NOT_RENDER",
             }),
-            event(id, 5, "source.started", { source: "jobinja.ir" }),
+            event(id, 5, "source.progress", {
+              source: "jobinja.ir",
+              stage: "extract",
+            }),
             event(id, 6, "job.accepted", { job }),
             event(id, 7, "source.completed", {
               source: "jobinja.ir",
@@ -211,6 +214,23 @@ module.exports = (async () => {
                   accepted: 0,
                   rejected: 0,
                   failed: true,
+                  issue: {
+                    category: "provider",
+                    message: "سرویس دریافت پاسخ معتبر نداد.",
+                    retryable: true,
+                  },
+                },
+                {
+                  source: "e-estekhdam.com",
+                  found: 1,
+                  accepted: 0,
+                  rejected: 1,
+                  failed: true,
+                  issue: {
+                    category: "site",
+                    message: "صفحهٔ سایت کاریابی پیام خطای اتصال نشان داد.",
+                    retryable: true,
+                  },
                 },
               ],
             }),
@@ -319,7 +339,9 @@ module.exports = (async () => {
     await chat.send("کار متخصص طراحی خدمات دورکار بالای ۲۰ میلیون می‌خوام");
     await expect(page.getByRole("heading", { name: job.title })).toBeVisible();
     await expect(chat.input()).toBeDisabled();
-    await expect(chat.activity()).toContainText("در حال جستجو");
+    await expect(chat.activity()).toContainText(
+      "در حال استخراج اطلاعات آگهی‌ها",
+    );
     await expect(chat.activity()).toContainText("شروع جستجو در منابع منتخب");
     await expect(chat.activity()).not.toContainText(
       "PRIVATE_REASONING_MUST_NOT_RENDER",
@@ -335,6 +357,8 @@ module.exports = (async () => {
     releaseReplay();
     await expect(chat.input()).toBeEnabled();
     await expect(page.getByRole("heading", { name: job.title })).toHaveCount(1);
+    await expect(chat.activity()).toContainText("خطای سرویس");
+    await expect(chat.activity()).toContainText("خطای صفحهٔ سایت");
     await chat
       .activity()
       .getByRole("button", { name: /مشاهده جزئیات/ })

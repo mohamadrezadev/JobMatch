@@ -21,9 +21,62 @@ const view = (): ChatRunView => ({
   error: null,
 });
 beforeEach(() => useChatRunStore.getState().reset());
+it("shows source extraction progress and keeps categorized failures visible when collapsed", () => {
+  const run = view();
+  run.sources = [
+    { source: "jobvision.ir", found: 2, accepted: 0, rejected: 0 },
+  ];
+  run.events = [
+    {
+      id: "progress",
+      runId: "run",
+      sequence: 1,
+      timestamp: "now",
+      type: "source.progress",
+      data: { source: "jobvision.ir", stage: "extract" },
+    },
+  ];
+  const { rerender } = render(<RunActivity run={run} />);
+  expect(
+    screen.getByRole("button", { name: /جاب‌ویژن: در حال استخراج/ }),
+  ).toBeInTheDocument();
+  rerender(
+    <RunActivity
+      run={{
+        ...run,
+        status: "PARTIAL",
+        sources: [
+          {
+            source: "irantalent.com",
+            found: 1,
+            accepted: 0,
+            rejected: 1,
+            error: "SOURCE_UNAVAILABLE",
+            issue: {
+              category: "provider",
+              message: "سرویس دریافت پاسخ معتبر نداد.",
+              retryable: true,
+            },
+          },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getByLabelText("مشکلات بررسی منابع")).toHaveTextContent(
+    /ایران‌تلنت.*خطای سرویس/,
+  );
+  expect(screen.getByRole("button", { name: /مشاهده جزئیات/ })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+});
 it("does not present incomplete searches with zero jobs as a successful empty search", () => {
   render(<RunActivity run={{ ...view(), status: "PARTIAL" }} />);
-  expect(screen.getByRole("button", { name: /جستجو کامل نشد؛ هنوز نتیجه‌ای تأیید نشده/ })).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", {
+      name: /جستجو کامل نشد؛ هنوز نتیجه‌ای تأیید نشده/,
+    }),
+  ).toBeInTheDocument();
   expect(screen.queryByText(/✓ ۰ موقعیت پیدا شد/)).not.toBeInTheDocument();
 });
 it("shows that all four sources are searched concurrently", () => {
@@ -152,7 +205,7 @@ it("shows actual progress and keeps job cards visible after collapsing completed
     },
   ];
   const { rerender } = render(<RunActivity run={run} />);
-  expect(screen.getByText(/در حال جستجو/)).toBeInTheDocument();
+  expect(screen.getAllByText(/در حال جستجو/).length).toBeGreaterThan(0);
   rerender(<RunActivity run={{ ...run, status: "COMPLETED" }} />);
   expect(screen.queryByText(/در حال جستجو/)).not.toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Backend" })).toBeInTheDocument();

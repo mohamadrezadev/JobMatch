@@ -4,6 +4,12 @@ import { useState } from "react";
 import { useChatRunStore } from "@/stores/useChatRunStore";
 import { runFinished, type ChatRunView } from "@/types/chat-run";
 import type { Conversation } from "@/types/chat";
+import {
+  progressLabel,
+  stageLabels,
+  sourceNames,
+} from "@/lib/discovery-progress";
+import { SourceProblems } from "./SourceProblems";
 
 const agentReasons: Record<string, string> = {
   INITIAL_SEARCH: "شروع جستجو در منابع منتخب",
@@ -25,6 +31,9 @@ export function RunActivity({ run }: { run: ChatRunView }) {
   const cached = run.events.some((e) => e.type === "search.cached");
   const searching = run.events.some((e) => e.type === "search.started");
   const showDetails = !finished || expanded;
+  const current = [...run.events]
+    .reverse()
+    .find((event) => /^(context|source|agent|search)\./.test(event.type));
   return (
     <section
       aria-label="فعالیت اجرای درخواست"
@@ -42,9 +51,9 @@ export function RunActivity({ run }: { run: ChatRunView }) {
             ? run.jobs.length
               ? `! ${run.jobs.length.toLocaleString("fa-IR")} موقعیت پیدا شد؛ بررسی منابع کامل نشد`
               : "! جستجو کامل نشد؛ هنوز نتیجه‌ای تأیید نشده"
-          : finished
-            ? `✓ ${searching || cached ? `${run.jobs.length.toLocaleString("fa-IR")} موقعیت پیدا شد` : "درخواست بررسی شد"}`
-            : "◌ در حال انجام درخواست…"}
+            : finished
+              ? `✓ ${searching || cached ? `${run.jobs.length.toLocaleString("fa-IR")} موقعیت پیدا شد` : "درخواست بررسی شد"}`
+              : `◌ ${progressLabel(current)}`}
         {finished && (
           <span className="mr-2 font-normal">
             {expanded ? "بستن جزئیات" : "مشاهده جزئیات"}
@@ -150,12 +159,14 @@ export function RunActivity({ run }: { run: ChatRunView }) {
             const last = [...run.events]
               .reverse()
               .find((e) => e.data.source === source.source);
-            const running = last?.type === "source.started";
+            const running =
+              !finished &&
+              ["source.started", "source.progress"].includes(last?.type ?? "");
             return (
               <p key={source.source}>
-                <span dir="ltr">{source.source}</span> —{" "}
+                <span>{sourceNames[source.source] ?? source.source}</span> —{" "}
                 {running
-                  ? "◌ در حال جستجو"
+                  ? `◌ ${last?.type === "source.progress" ? (stageLabels[String(last.data.stage)] ?? "در حال بررسی آگهی‌ها") : "در حال جستجو"}`
                   : source.error
                     ? `! بررسی کامل نشد · ${source.accepted.toLocaleString("fa-IR")} نتیجه`
                     : `✓ ${source.accepted.toLocaleString("fa-IR")} نتیجه · ${source.found.toLocaleString("fa-IR")} لینک پیدا شد`}
@@ -167,6 +178,7 @@ export function RunActivity({ run }: { run: ChatRunView }) {
           )}
         </div>
       )}
+      <SourceProblems sources={run.sources} />
       {run.error && (
         <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">
           {run.error}

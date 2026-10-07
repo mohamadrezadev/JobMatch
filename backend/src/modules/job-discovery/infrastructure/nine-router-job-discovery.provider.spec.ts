@@ -9,6 +9,8 @@ import { SourceDiscoveryBudget } from "../application/discovery.ports";
 import { AgentSearchService } from "../application/agent-search.service";
 import { AgentPlannerService } from "../application/agent-planner.service";
 import { GuestDiscoveryService } from "../../chat/application/guest-discovery.service";
+import { Logger } from "@nestjs/common";
+import { APIConnectionTimeoutError } from "openai";
 
 const html =
   '<script type="application/ld+json">{"@type":"JobPosting","title":"Backend Developer","hiringOrganization":{"name":"X"}}</script>';
@@ -234,6 +236,7 @@ describe("Search/fetch boundary", () => {
     client.search.mockResolvedValue(["https://jobvision.ir/jobs/1"]);
     const progress = {
       sourceStarted: jest.fn(async () => undefined),
+      sourceProgress: jest.fn(async () => undefined),
       sourceCompleted: jest.fn(async () => undefined),
       jobCandidate: jest.fn(async () => false),
     };
@@ -243,6 +246,11 @@ describe("Search/fetch boundary", () => {
       ["jobvision.ir"],
     ).discover({ targetRoles: ["Backend Developer"] }, signal, progress);
     expect(progress.sourceStarted).toHaveBeenCalledWith("jobvision.ir");
+    expect(progress.sourceProgress.mock.calls).toEqual([
+      ["jobvision.ir", "fetch"],
+      ["jobvision.ir", "extract"],
+      ["jobvision.ir", "filter"],
+    ]);
     expect(progress.jobCandidate).toHaveBeenCalledTimes(1);
     expect(progress.sourceCompleted).toHaveBeenCalledWith(
       expect.objectContaining({ accepted: 0, rejected: 1 }),
@@ -419,6 +427,80 @@ describe("Search/fetch boundary", () => {
     ).discover({ targetRoles: ["Backend Developer"] }, signal);
     expect(result.jobs).toEqual([]);
     expect(extractor.extract).not.toHaveBeenCalled();
+  });
+  it("rejects an error screen before model extraction and logs safe page diagnostics", async () => {
+    const warn = jest
+      .spyOn(Logger.prototype, "warn")
+      .mockImplementation(() => undefined);
+    const url = "https://jobvision.ir/jobs/1?token=private-value";
+    client.search.mockResolvedValue([url]);
+    client.fetch.mockResolvedValue({
+      url,
+      content: "#### خطا در اتصال به سرور - Connection Error\nRefresh",
+      links: [],
+    });
+    const extractor = { extract: jest.fn() };
+    try {
+      const result = await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobvision.ir"],
+        extractor,
+      ).discover({ targetRoles: ["Backend Developer"] }, signal);
+      expect(result.jobs).toEqual([]);
+      expect(result.sources[0].error).toBe("PAGE_CONNECTION_ERROR");
+      expect(extractor.extract).not.toHaveBeenCalled();
+      expect(JSON.parse(warn.mock.calls[0][0] as string)).toMatchObject({
+        stage: "page",
+        code: "PAGE_CONNECTION_ERROR",
+        page: "https://jobvision.ir/jobs/1",
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("private-value");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  it("keeps a healthy posting alongside a specific failed fetch", async () => {
+    client.search.mockResolvedValue([
+      "https://jobvision.ir/jobs/1",
+      "https://jobvision.ir/jobs/2",
+    ]);
+    client.fetch.mockImplementation(async (url) => {
+      if (url.endsWith("/2"))
+        throw Object.assign(new DiscoveryError("FETCH_EMPTY_CONTENT", 502), {
+          attempts: 2,
+          upstreamStatus: 502,
+        });
+      return { url, content: html };
+    });
+    const result = await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+    ).discover({ targetRoles: ["Backend Developer"] }, signal);
+    expect(result.jobs).toHaveLength(1);
+    expect(result.sources[0]).toMatchObject({
+      accepted: 1,
+      rejected: 1,
+      error: "FETCH_EMPTY_CONTENT",
+    });
+  });
+  it("identifies the actual OpenAI SDK timeout type during extraction", async () => {
+    client.search.mockResolvedValue(["https://jobvision.ir/jobs/1"]);
+    client.fetch.mockResolvedValue({
+      url: "https://jobvision.ir/jobs/1",
+      content: "Unknown page layout",
+    });
+    const extractor = {
+      extract: jest.fn().mockRejectedValue(new APIConnectionTimeoutError({})),
+    };
+    const result = await new NineRouterJobDiscoveryProvider(
+      client as unknown as NineRouterClient,
+      validator,
+      ["jobvision.ir"],
+      extractor,
+    ).discover({ targetRoles: ["Backend Developer"] }, signal);
+    expect(result.sources[0].error).toBe("EXTRACTION_TIMEOUT");
   });
   it("uses a verified final URL for Google bridges and follows only permitted detail links", async () => {
     const bridge =

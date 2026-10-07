@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from "axios";
+import { Logger } from "@nestjs/common";
 import { DiscoveryError } from "../domain/discovery";
 
 export interface RouterConfig {
@@ -17,6 +18,7 @@ export interface FetchedPage {
   links: string[];
 }
 export class NineRouterClient {
+  private readonly logger = new Logger(NineRouterClient.name);
   private readonly http: AxiosInstance;
   constructor(private readonly config: RouterConfig) {
     this.http = axios.create({
@@ -90,17 +92,7 @@ export class NineRouterClient {
       );
   }
   async fetch(url: string, signal: AbortSignal): Promise<FetchedPage> {
-    const response = await this.http.post(
-      "/v1/web/fetch",
-      {
-        model: this.config.fetchModel,
-        url,
-        format: this.config.fetchModel === "tinyfish" ? "markdown" : "html",
-        max_characters: 200000,
-        include_links: true,
-      },
-      { signal, timeout: this.config.fetchTimeout },
-    );
+    const response = await this.fetchResponse(url, signal);
     const data = response.data;
     if (
       typeof data?.url !== "string" ||
@@ -112,7 +104,6 @@ export class NineRouterClient {
     if (finalUrl != null && typeof finalUrl !== "string")
       throw new DiscoveryError("PROVIDER_RESPONSE_INVALID", 502);
     if (this.config.fetchModel === "tinyfish") {
-      // The reviewed policy belongs to TinyFish, not arbitrary combo fallbacks.
       if (data.provider !== "tinyfish")
         throw new DiscoveryError("FETCH_PROVIDER_MISMATCH", 502);
       if (typeof finalUrl !== "string" || !finalUrl.trim())
@@ -127,20 +118,12 @@ export class NineRouterClient {
     const links = Array.isArray(data.links)
       ? data.links.slice(0, 1000).flatMap((link: unknown) => {
           if (typeof link === "string") return [link];
-          if (
-            link &&
-            typeof link === "object" &&
-            "url" in link &&
-            typeof link.url === "string"
-          )
-            return [link.url];
-          if (
-            link &&
-            typeof link === "object" &&
-            "href" in link &&
-            typeof link.href === "string"
-          )
-            return [link.href];
+          if (link && typeof link === "object") {
+            if ("url" in link && typeof link.url === "string")
+              return [link.url];
+            if ("href" in link && typeof link.href === "string")
+              return [link.href];
+          }
           return [];
         })
       : [];
@@ -150,5 +133,76 @@ export class NineRouterClient {
       finalUrlVerified: typeof finalUrl === "string" && finalUrl.length > 0,
       links,
     };
+  }
+  private async fetchResponse(url: string, signal: AbortSignal) {
+    const deadline = Date.now() + this.config.fetchTimeout;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      signal.throwIfAborted();
+      const remaining = Math.max(1, deadline - Date.now());
+      try {
+        return await this.http.post(
+          "/v1/web/fetch",
+          {
+            model: this.config.fetchModel,
+            url,
+            format: this.config.fetchModel === "tinyfish" ? "markdown" : "html",
+            max_characters: 200000,
+            include_links: true,
+          },
+          {
+            signal,
+            timeout:
+              attempt === 1
+                ? Math.max(1, Math.floor(remaining * 0.65))
+                : remaining,
+          },
+        );
+      } catch (error) {
+        if (signal.aborted) throw error;
+        const failure = axios.isAxiosError(error) ? error : undefined;
+        const status = failure?.response?.status;
+        const transient =
+          [502, 503, 504].includes(status ?? 0) ||
+          ["ECONNABORTED", "ETIMEDOUT", "ECONNRESET", "EAI_AGAIN"].includes(
+            failure?.code ?? "",
+          );
+        if (attempt === 1 && transient && Date.now() < deadline) {
+          const target = new URL(url);
+          this.logger.warn(
+            JSON.stringify({
+              stage: "fetch-retry",
+              page:
+                target.hostname === "vertexaisearch.cloud.google.com"
+                  ? target.origin + "/grounding-api-redirect/[redacted]"
+                  : target.origin + target.pathname,
+              attempt,
+              httpStatus: status,
+              transportCode: failure?.code,
+            }),
+          );
+          continue;
+        }
+        const upstream = failure?.response?.data;
+        const message =
+          typeof upstream?.error === "string"
+            ? upstream.error
+            : upstream?.error?.message;
+        const code =
+          status === 502 &&
+          typeof message === "string" &&
+          message.includes("empty_content")
+            ? "FETCH_EMPTY_CONTENT"
+            : ["ECONNABORTED", "ETIMEDOUT"].includes(failure?.code ?? "")
+              ? "FETCH_TIMEOUT"
+              : status
+                ? `FETCH_HTTP_${status}`
+                : "FETCH_NETWORK_ERROR";
+        throw Object.assign(new DiscoveryError(code, 502), {
+          attempts: attempt,
+          upstreamStatus: status,
+        });
+      }
+    }
+    throw new DiscoveryError("FETCH_TIMEOUT", 502);
   }
 }

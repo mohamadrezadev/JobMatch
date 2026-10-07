@@ -1,6 +1,33 @@
 import { DiscoveredJob } from "./discovery";
 
 type ObjectValue = Record<string, unknown>;
+// Identify error screens before extraction; normal job descriptions mentioning
+// networking or JavaScript must not be classified as browser failures.
+export function pageFailureCode(content: string): string | null {
+  const header = content
+    .slice(0, 1500)
+    .replace(/<\/(?:h[1-6]|p|div)>/gi, "\n")
+    .replace(/<[^>]+>/g, "");
+  if (
+    /^\s*(?:#{1,6}\s*)?(?:خطا در اتصال به سرور\s*-\s*)?Connection Error\s*$/im.test(
+      header,
+    )
+  )
+    return "PAGE_CONNECTION_ERROR";
+  if (
+    /^\s*(?:#{1,6}\s*)?(?:مشکل سازگاری مرورگر\s*-\s*)?Javascript Error\s*$/im.test(
+      header,
+    )
+  )
+    return "PAGE_JAVASCRIPT_ERROR";
+  if (
+    /^\s*(?:#{1,6}\s*)?(?:Access Denied|Just a moment\.\.\.|Checking your browser|Verify you are human|دسترسی غیرمجاز)\s*$/im.test(
+      header,
+    )
+  )
+    return "PAGE_ACCESS_BLOCKED";
+  return content.trim() ? null : "FETCH_EMPTY_CONTENT";
+}
 export function explicitlyClosed(content: string) {
   const main = content.split(/^###\s+مشاغل مشابه/m)[0];
   return /این (?:آگهی|فرصت شغلی).{0,40}(?:بسته|منقضی|غیرفعال)|مهلت ارسال رزومه.{0,30}پایان/.test(
@@ -128,6 +155,7 @@ export function normalizeJob(
   content: string,
   url: string,
 ): DiscoveredJob | null {
+  if (pageFailureCode(content)) return null;
   let candidates: ObjectValue[] = [];
   for (const match of content.matchAll(
     /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
@@ -150,6 +178,7 @@ export function normalizeJob(
     return (
       jobinjaMarkdown(content, url) ??
       jobinjaText(content, url) ??
+      jobvisionMarkdown(content, url) ??
       iranTalentText(content, url) ??
       labeledJob(content, url)
     );
@@ -194,6 +223,77 @@ export function normalizeJob(
     source: new URL(url).hostname.replace(/^www\./, ""),
     sourceUrl: url,
     publishedAt: date,
+  };
+}
+// The observed Jobvision header is title, posting age, company, location and
+// employment type. Only parse this layout on a numeric vacancy URL, never lists.
+function jobvisionMarkdown(content: string, url: string): DiscoveredJob | null {
+  const target = new URL(url);
+  if (
+    !/^(?:www\.)?jobvision\.ir$/.test(target.hostname) ||
+    !/^\/jobs\/\d+(?:\/|$)/.test(target.pathname)
+  )
+    return null;
+  const main = content.split(
+    /^(?:#{1,6}\s*)?(?:موقعیت[‌ ]های شغلی مشابه|Similar Jobs)\s*$/im,
+  )[0];
+  if (
+    explicitlyClosed(main) ||
+    /^(?:#{1,6}\s*)?(?:This job (?:is closed|has expired)|Job expired)\s*$/im.test(
+      main,
+    )
+  )
+    return null;
+  const header =
+    /^#\s+([^\n]+)\r?\n\s*\n\((?:\d+\s+(?:days?|hours?|weeks?|months?) ago|today|yesterday)\)\s*\n\s*\n([^\n]+)\s*\n\s*\n([^\n]+)\s*\n\s*\n(Full Time|Part Time|Contract|Internship)\s*$/im.exec(
+      main,
+    );
+  const description = plainText(
+    /^##\s+Job Description\s*\n([\s\S]*?)(?=^##\s|$(?![\s\S]))/im.exec(
+      main,
+    )?.[1],
+  );
+  if (!header || !description) return null;
+  const title = plainText(header[1]),
+    company = plainText(header[2]),
+    location = plainText(header[3]);
+  if (
+    !title ||
+    !company ||
+    !location ||
+    title.length > 300 ||
+    company.length > 300
+  )
+    return null;
+  const requirements =
+    /^##\s+key Requirements\s*\n([\s\S]*?)(?=^##\s|$(?![\s\S]))/im.exec(
+      main,
+    )?.[1] ?? "";
+  return {
+    title,
+    company,
+    location,
+    workType: null,
+    experienceLevel: plainText(
+      /^([^\n]*years? experience[^\n]*)$/im.exec(requirements)?.[1],
+    ),
+    ...parseSalary(null),
+    description,
+    requiredSkills: requirements
+      .split(/\r?\n/)
+      .flatMap((line) => {
+        const match =
+          /^(.+?)\s+-\s+(?:Basic|Intermediate|Advanced|Expert)\s*$/i.exec(
+            line.trim(),
+          );
+        const skill = plainText(match?.[1]);
+        return skill && skill.length <= 100 ? [skill] : [];
+      })
+      .slice(0, 50),
+    preferredSkills: [],
+    source: "jobvision.ir",
+    sourceUrl: url,
+    publishedAt: null,
   };
 }
 // TinyFish's Jobinja Markdown retains the primary company/title and labeled

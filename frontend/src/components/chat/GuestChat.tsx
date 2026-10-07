@@ -4,6 +4,17 @@ import Link from "next/link";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { Icon } from "@/components/pathly/Icon";
 import {
+  sendGuestMessage,
+  type GuestProgressEvent,
+} from "@/lib/guest-chat-stream";
+import {
+  progressLabel,
+  stageLabels,
+  sourceNames,
+} from "@/lib/discovery-progress";
+import { SourceProblems } from "./SourceProblems";
+import type { DiscoveryIssue } from "@/types/discovery";
+import {
   guestChatClient,
   guestContinuationKey,
   guestDraftKey,
@@ -22,6 +33,17 @@ export function GuestChat() {
   const [submitted, setSubmitted] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [activity, setActivity] = useState<GuestProgressEvent | undefined>();
+  const [sources, setSources] = useState<
+    Array<{
+      source: string;
+      stage?: string;
+      finished?: boolean;
+      failed?: boolean;
+      issue?: DiscoveryIssue;
+    }>
+  >([]);
+  const request = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
   async function restore() {
     setLoading(true);
@@ -55,6 +77,9 @@ export function GuestChat() {
   useEffect(() => {
     setDraft(sessionStorage.getItem(guestDraftKey) ?? "");
     void restore();
+    return () => {
+      request.current?.abort();
+    };
   }, []);
   useEffect(() => {
     if (chat?.messages.length)
@@ -74,15 +99,73 @@ export function GuestChat() {
     setSubmitted(message.trim());
     setPending(true);
     setError("");
+    setActivity({ type: "context.processing", data: {} });
+    setSources([]);
+    const connection = new AbortController();
+    request.current = connection;
     try {
-      const response = await guestChatClient.post<{ data: GuestChatState }>(
-        "/api/chat/guest/message",
-        { message: message.trim() },
+      const state = await sendGuestMessage(
+        message.trim(),
+        (event) => {
+          if (connection.signal.aborted) return;
+          setActivity(event);
+          if (
+            event.type.startsWith("source.") &&
+            typeof event.data.source === "string"
+          ) {
+            const source = event.data.source;
+            setSources((previous) => [
+              ...previous.filter((item) => item.source !== source),
+              {
+                source,
+                stage:
+                  event.type === "source.progress"
+                    ? String(event.data.stage)
+                    : "search",
+                finished: ["source.completed", "source.failed"].includes(
+                  event.type,
+                ),
+                failed: event.type === "source.failed",
+                ...(event.data.issue
+                  ? { issue: event.data.issue as DiscoveryIssue }
+                  : {}),
+              },
+            ]);
+          }
+        },
+        connection.signal,
       );
-      setChat(response.data.data);
+      if (connection.signal.aborted) return;
+      setChat(state);
       saveDraft("");
       sessionStorage.setItem(guestContinuationKey, "1");
     } catch (failure: unknown) {
+      if (connection.signal.aborted) return;
+      // Recover only a committed matching turn after losing the stream. Never
+      // automatically POST again or consume another guest allowance.
+      if (!(failure as { response?: unknown }).response) {
+        try {
+          const restored = (
+            await guestChatClient.get<{ data: GuestChatState }>(
+              "/api/chat/guest",
+            )
+          ).data.data;
+          const lastUser = [...restored.messages]
+            .reverse()
+            .find((item) => item.role === "user");
+          if (
+            restored.messages.length > chat.messages.length &&
+            lastUser?.content === message.trim()
+          ) {
+            setChat(restored);
+            saveDraft("");
+            sessionStorage.setItem(guestContinuationKey, "1");
+            return;
+          }
+        } catch {
+          /* Preserve the draft and report the original transport loss. */
+        }
+      }
       const code = (
         failure as { response?: { data?: { error?: { code?: string } } } }
       ).response?.data?.error?.code;
@@ -97,11 +180,15 @@ export function GuestChat() {
         setError(
           code === "RATE_LIMITED"
             ? "کمی مکث کن؛ یک دقیقه دیگر دوباره پیام بده."
-            : "پیام ارسال نشد؛ متنت حفظ شده. دوباره تلاش کن.",
+            : !(failure as { response?: unknown }).response
+              ? "اتصال نمایش وضعیت قطع شد؛ ممکن است درخواست هنوز در حال انجام باشد. متنت حفظ شده؛ تاریخچه را دوباره بررسی کن."
+              : "پیام ارسال نشد؛ متنت حفظ شده. دوباره تلاش کن.",
         );
     } finally {
-      setPending(false);
-      setSubmitted("");
+      if (!connection.signal.aborted) {
+        setPending(false);
+        setSubmitted("");
+      }
     }
   }
   return (
@@ -175,18 +262,14 @@ export function GuestChat() {
             </p>
           </article>
         )}
-        {pending && (
-          <p role="status" className="text-xs text-brand-500">
-            در حال بررسی هدف و شرایطت؛ اگر عنوان شغلی مشخص باشد، منابع شغلی
-            همزمان جستجو می‌شوند…
-          </p>
-        )}
         {chat?.discovery && (
           <section aria-label="نتایج جستجوی مهمان" className="space-y-3">
+            <SourceProblems sources={chat.discovery.sources} />
             <h3 className="text-sm font-bold">فرصت‌های پیدا شده</h3>
             {chat.discovery.error && (
               <p role="alert" className="text-xs text-amber-600">
-                منابع جستجو پاسخ قابل استفاده ندادند؛ شرایطت حفظ شده است.
+                {chat.discovery.issue?.message ??
+                  "منابع جستجو پاسخ قابل استفاده ندادند؛ شرایطت حفظ شده است."}
               </p>
             )}
             {chat.discovery.sources.length > 0 && (
@@ -240,6 +323,32 @@ export function GuestChat() {
         )}
         <div ref={end} />
       </div>
+      {pending && (
+        <section
+          aria-label="فعالیت اجرای درخواست"
+          className="mx-5 my-3 max-h-48 shrink-0 space-y-2 overflow-y-auto rounded-xl bg-brand-500/5 p-3 text-xs"
+        >
+          <p
+            role="status"
+            aria-live="polite"
+            className="font-semibold text-brand-500"
+          >
+            {progressLabel(activity)}
+          </p>
+          {sources.map((source) => (
+            <p key={source.source}>
+              {sourceNames[source.source] ?? source.source}:{" "}
+              {source.finished
+                ? source.failed
+                  ? "بررسی کامل نشد"
+                  : "بررسی تمام شد"
+                : (stageLabels[source.stage ?? ""] ??
+                  "در حال جستجوی لینک آگهی‌ها")}
+            </p>
+          ))}
+          <SourceProblems sources={sources} />
+        </section>
+      )}
       {error && (
         <div
           role="alert"

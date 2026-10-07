@@ -63,6 +63,8 @@ import { AgentSearchService } from "./application/agent-search.service";
                   maxRetries: 0,
                 }),
                 config.get<string>("OPENAI_MODEL") || "agents",
+                Number(config.get("JOB_DISCOVERY_EXTRACTION_TIMEOUT_MS")) ||
+                  8000,
               )
             : undefined,
         );

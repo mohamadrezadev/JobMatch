@@ -23,7 +23,7 @@ import { Request, Response } from "express";
 import { JwtAuthGuard } from "../../../common/guards/jwt-auth.guard";
 import { CurrentUser } from "../../../common/decorators/current-user.decorator";
 import { GuestChatService } from "../application/guest-chat.service";
-import { ChatExceptionFilter } from "./chat-exception.filter";
+import { ChatExceptionFilter, chatFailure } from "./chat-exception.filter";
 
 class GuestMessageDto {
   @ApiProperty({ maxLength: 4000 })
@@ -131,6 +131,63 @@ export class GuestChatController {
       success: true,
       data: await this.chat.send(hash(raw), dto.message.trim()),
     };
+  }
+  @Post("message/stream")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Stream cookie-bound guest task progress and the committed final turn",
+  })
+  async stream(
+    @Req() request: Request,
+    @Res() response: Response,
+    @Body() dto: GuestMessageDto,
+  ) {
+    this.checkOrigin(request);
+    this.throttle(request);
+    const raw = token(request) ?? randomBytes(32).toString("hex");
+    response.cookie(cookieName, raw, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 86400000,
+      path: "/api/chat/guest",
+    });
+    response
+      .status(200)
+      .set({
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-store, no-transform",
+        "X-Accel-Buffering": "no",
+      });
+    response.flushHeaders();
+    let closed = false;
+    const close = () => {
+      closed = true;
+      clearInterval(heartbeat);
+    };
+    const heartbeat = setInterval(() => {
+      if (!closed) response.write(": heartbeat\n\n");
+    }, 10000);
+    response.on("close", close);
+    const publish = async (type: string, data: Record<string, unknown>) => {
+      if (!closed)
+        response.write(
+          `event: ${type}\ndata: ${JSON.stringify({ type, data })}\n\n`,
+        );
+    };
+    try {
+      // Disconnection does not resubmit or discard a successful committed turn.
+      const data = await this.chat.send(hash(raw), dto.message.trim(), publish);
+      await publish("guest.completed", { state: data });
+    } catch (error) {
+      const { code, message, status } = chatFailure(error);
+      await publish("guest.failed", { code, message, status });
+    } finally {
+      clearInterval(heartbeat);
+      response.off("close", close);
+      if (!closed) response.end();
+    }
   }
   @Post("claim")
   @HttpCode(200)

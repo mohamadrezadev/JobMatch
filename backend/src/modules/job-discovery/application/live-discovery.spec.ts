@@ -24,21 +24,17 @@ let repository: jest.Mocked<DiscoveryRepository>,
   service: JobDiscoveryService;
 beforeEach(() => {
   repository = {
-    context: jest
-      .fn()
-      .mockResolvedValue({
-        version: 2,
-        intent: { targetRoles: ["Backend Developer"], workTypes: ["Remote"] },
-      }),
-    begin: jest
-      .fn()
-      .mockResolvedValue({
-        id: "run",
-        status: "RUNNING",
-        cached: false,
-        jobs: [],
-        sources: [],
-      }),
+    context: jest.fn().mockResolvedValue({
+      version: 2,
+      intent: { targetRoles: ["Backend Developer"], workTypes: ["Remote"] },
+    }),
+    begin: jest.fn().mockResolvedValue({
+      id: "run",
+      status: "RUNNING",
+      cached: false,
+      jobs: [],
+      sources: [],
+    }),
     complete: jest.fn(),
     fail: jest.fn(),
     latest: jest.fn(),
@@ -127,6 +123,7 @@ it("reports a cache hit without fabricated source activity or raw diagnostics", 
         accepted: 0,
         rejected: 0,
         failed: true,
+        issue: expect.objectContaining({ category: "unknown" }),
       },
     ],
   });

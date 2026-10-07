@@ -223,6 +223,10 @@ export class AgentSearchService {
         return report;
       };
       const track: DiscoveryProgress = {
+        sourceProgress: async (source, stage) => {
+          if (!batch.signal.aborted && selected.includes(source))
+            await progress?.sourceProgress?.(source, stage);
+        },
         sourceStarted: async (source) => {
           if (batch.signal.aborted || !selected.includes(source)) return;
           await progress?.sourceStarted(source);

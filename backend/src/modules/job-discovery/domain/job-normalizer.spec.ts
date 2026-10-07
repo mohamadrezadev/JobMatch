@@ -1,6 +1,83 @@
-import { normalizeJob } from "./job-normalizer";
+import { normalizeJob, pageFailureCode } from "./job-normalizer";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { filterAndRank } from "./discovery";
 const url = "https://jobinja.ir/companies/example/jobs/123/backend";
+describe("Observed Jobvision vacancy", () => {
+  const content = readFileSync(
+    join(__dirname, "fixtures/jobvision-backend.md"),
+    "utf8",
+  );
+  const url = "https://jobvision.ir/jobs/1499663/backend-developer";
+  it("extracts the primary vacancy, keeping related salary and work type out of its facts", () => {
+    const job = normalizeJob(content, url)!;
+    expect(job).toMatchObject({
+      title: "Backend Developer (َApplication)",
+      company: "Asan Pardakht",
+      location: "Tehran/Amanieh",
+      salaryMin: null,
+      salaryMax: null,
+      workType: null,
+      experienceLevel: "5 years experience in similar position",
+      requiredSkills: [
+        "MySql",
+        "PostgreSql",
+        "Go",
+        "Kafka",
+        "RabbitMQ",
+        "Docker",
+        "Kubernetes",
+      ],
+    });
+    expect(job.description).toContain("financial systems");
+    expect(job.description).not.toContain("بلوپی");
+    expect(
+      filterAndRank([job], {
+        targetRoles: ["Backend Developer"],
+        locations: ["Tehran"],
+      }),
+    ).toHaveLength(1);
+  });
+  it("requires the observed detail layout and cannot parse listings or missing facts", () => {
+    for (const target of [
+      "https://jobvision.ir/jobs",
+      "https://jobinja.ir/jobs/1499663",
+      "https://jobvision.ir/jobs/not-a-vacancy",
+    ])
+      expect(normalizeJob(content, target)).toBeNull();
+    expect(
+      normalizeJob(content.replace("Asan Pardakht\n\n", ""), url),
+    ).toBeNull();
+    expect(
+      normalizeJob(content.replace("## Job Description", "Description"), url),
+    ).toBeNull();
+    expect(normalizeJob("این آگهی بسته شده است\n" + content, url)).toBeNull();
+  });
+});
+describe("Error screen detection", () => {
+  it.each([
+    [
+      "#### خطا در اتصال به سرور - Connection Error\nRefresh",
+      "PAGE_CONNECTION_ERROR",
+    ],
+    [
+      "#### مشکل سازگاری مرورگر - Javascript Error\nUpgrade",
+      "PAGE_JAVASCRIPT_ERROR",
+    ],
+    ["# Access Denied\nBlocked", "PAGE_ACCESS_BLOCKED"],
+    ["<h1>Access Denied</h1><p>Blocked</p>", "PAGE_ACCESS_BLOCKED"],
+    ["", "FETCH_EMPTY_CONTENT"],
+  ])("identifies %s", (content, code) =>
+    expect(pageFailureCode(content)).toBe(code),
+  );
+  it("retains real vacancy prose about JavaScript and connection errors", () => {
+    expect(
+      pageFailureCode(
+        "# Backend Developer\nDebug JavaScript errors and connection errors in APIs.",
+      ),
+    ).toBeNull();
+  });
+});
 const page = `## Example Company
 
 # استخدام Backend Developer

@@ -78,6 +78,7 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
       }
       await progress?.sourceStarted("jobinja.ir");
       await progress?.sourceStarted("jobvision.ir");
+      await progress?.sourceProgress?.("jobvision.ir", "extract");
       await progress?.jobCandidate(job);
       await progress?.jobCandidate({
         ...job,
@@ -291,13 +292,23 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
       release!();
     });
     expect(found).toBe(true);
-    expect(
-      events
-        .filter((e) => e.type === "agent.decision")
-        .map((e) => e.data.action),
-    ).toEqual(["SEARCH_SOURCES", "FINISH"]);
+    expect(events.find((e) => e.type === "source.progress")).toMatchObject({
+      data: { source: "jobvision.ir", stage: "extract" },
+    });
+    expect(events.find((e) => e.type === "source.failed")).toMatchObject({
+      data: { issue: { category: "unknown" } },
+    });
+    const actions = events
+      .filter((e) => e.type === "agent.decision")
+      .map((e) => e.data.action);
+    expect(actions[0]).toBe("SEARCH_SOURCES");
+    expect(actions.at(-1)).toBe("FINISH");
+    const searches = actions.filter(
+      (action) => action === "SEARCH_SOURCES",
+    ).length;
+    expect(searches).toBeLessThanOrEqual(4);
     expect(events.filter((e) => e.type === "agent.observation")).toHaveLength(
-      1,
+      searches,
     );
     expect(events.filter((e) => e.type === "job.accepted")).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({

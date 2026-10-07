@@ -5,6 +5,7 @@ import { useAuthStore } from "@/stores/useAuthStore";
 import { useDiscoveryStore } from "@/stores/useDiscoveryStore";
 import { Icon } from "@/components/pathly/Icon";
 import type { SearchContext } from "@/types/chat";
+import { SourceProblems } from "./SourceProblems";
 
 export function DiscoveryPanel({
   conversationId,
@@ -62,6 +63,7 @@ export function DiscoveryPanel({
       )}
       {result && (
         <>
+          <SourceProblems sources={result.sources} />
           <p
             role="status"
             className="mb-3 text-xs text-slate-500 dark:text-slate-400"

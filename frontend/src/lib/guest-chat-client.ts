@@ -1,6 +1,6 @@
 import axios from "axios";
 import type { Conversation } from "@/types/chat";
-import type { DiscoveryJob } from "@/types/discovery";
+import type { DiscoveryJob, DiscoveryIssue } from "@/types/discovery";
 
 export interface GuestDiscovery {
   jobs: Array<Omit<DiscoveryJob, "id" | "requiredSkills" | "preferredSkills">>;
@@ -10,9 +10,11 @@ export interface GuestDiscovery {
     accepted: number;
     rejected: number;
     failed: boolean;
+    issue?: DiscoveryIssue;
   }>;
   partial: boolean;
   error?: string;
+  issue?: DiscoveryIssue;
 }
 
 export interface GuestChatState {

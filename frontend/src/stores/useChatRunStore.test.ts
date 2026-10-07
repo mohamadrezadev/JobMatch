@@ -48,6 +48,39 @@ beforeEach(() => {
   );
 });
 afterEach(() => useChatRunStore.getState().reset());
+it("retains source counts during phase updates and failure explanations on final replay", () => {
+  useChatRunStore.setState({ runs: [run()] });
+  const store = useChatRunStore.getState();
+  store.receive(
+    event(1, "source.completed", {
+      source: "jobvision.ir",
+      found: 4,
+      accepted: 1,
+      rejected: 3,
+    }),
+  );
+  store.receive(
+    event(2, "source.progress", { source: "jobvision.ir", stage: "extract" }),
+  );
+  expect(useChatRunStore.getState().runs[0].sources[0]).toMatchObject({
+    found: 4,
+    accepted: 1,
+    rejected: 3,
+  });
+  const source = {
+    source: "irantalent.com",
+    found: 1,
+    accepted: 0,
+    rejected: 1,
+    failed: true,
+    issue: { category: "timeout", message: "Timed out", retryable: true },
+  };
+  store.receive(event(3, "search.completed", { jobs: [], sources: [source] }));
+  expect(useChatRunStore.getState().runs[0].sources[0]).toMatchObject({
+    error: "SOURCE_UNAVAILABLE",
+    issue: source.issue,
+  });
+});
 it("deduplicates replay and keeps results after failure", () => {
   useChatRunStore.setState({ runs: [run()], pending: true });
   const job = { id: "j", title: "Backend" };
@@ -72,11 +105,9 @@ it("does not discard a gap in event sequence", () => {
   expect(useChatRunStore.getState().runs[0].sequence).toBe(0);
 });
 it("reuses the creation key when the POST response is lost", async () => {
-  post
-    .mockRejectedValueOnce(new Error("offline"))
-    .mockResolvedValueOnce({
-      data: { data: { runId: "run", conversationId: "c" } },
-    });
+  post.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({
+    data: { data: { runId: "run", conversationId: "c" } },
+  });
   expect(await useChatRunStore.getState().start("Backend", "c")).toBe(true);
   expect(post.mock.calls[0][1].requestId).toBe(post.mock.calls[1][1].requestId);
   expect(await useChatRunStore.getState().start("React", "c")).toBe(false);

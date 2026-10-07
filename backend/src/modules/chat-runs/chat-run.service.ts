@@ -10,6 +10,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { ChatService } from "../chat/application/chat.service";
 import { JobDiscoveryService } from "../job-discovery/application/job-discovery.service";
 import { DiscoveryError } from "../job-discovery/domain/discovery";
+import { discoveryIssue } from "../job-discovery/domain/discovery-issue";
 import {
   ConversationConflict,
   ConversationNotFound,
@@ -305,7 +306,10 @@ export class ChatRunService implements OnModuleDestroy {
           retryable: Boolean(
             startedTool && run.conversationId && run.contextVersion != null,
           ),
-          message: "عملیات انجام نشد. گفتگو و نتایج دریافت‌شده حفظ شده‌اند.",
+          message: startedTool
+            ? discoveryIssue(code).message +
+              " گفتگو و نتایج دریافت‌شده حفظ شده‌اند."
+            : "پردازش درخواست کامل نشد. گفتگو و نتایج دریافت‌شده حفظ شده‌اند.",
         },
         code,
       );

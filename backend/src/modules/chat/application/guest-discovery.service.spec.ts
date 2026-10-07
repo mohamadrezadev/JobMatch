@@ -70,26 +70,52 @@ it("returns a visible failure when the provider is unavailable", async () => {
     sources: [],
     partial: true,
     error: "JOB_DISCOVERY_UNAVAILABLE",
+    issue: expect.objectContaining({ category: "unknown" }),
   });
+});
+it("streams source stages and preserves safe per-source failure explanations", async () => {
+  const publish = jest.fn(async () => undefined);
+  const report = {
+    source: "e-estekhdam.com",
+    found: 1,
+    accepted: 0,
+    rejected: 1,
+    error: "PAGE_CONNECTION_ERROR",
+  };
+  const agent = {
+    search: jest.fn(async (_goal, _signal, progress) => {
+      await progress.sourceStarted(report.source);
+      await progress.sourceProgress(report.source, "fetch");
+      await progress.sourceCompleted(report);
+      return { jobs: [job], sources: [report], partial: true };
+    }),
+  };
+  const result = await new GuestDiscoveryService(
+    agent as unknown as AgentSearchService,
+  ).search(goal, publish);
+  expect(publish).toHaveBeenCalledWith("source.progress", {
+    source: report.source,
+    stage: "fetch",
+  });
+  expect(result.sources[0].issue?.category).toBe("site");
+  expect(result.jobs).toHaveLength(1);
 });
 it("reports no matches rather than provider failure after examining filtered vacancies", async () => {
   const agent = {
-    search: jest
-      .fn()
-      .mockResolvedValue({
-        jobs: [],
-        sources: [
-          {
-            source: "jobinja.ir",
-            found: 31,
-            accepted: 0,
-            rejected: 10,
-            evaluated: 6,
-            error: "FETCH_OR_VALIDATION_FAILED",
-          },
-        ],
-        partial: true,
-      }),
+    search: jest.fn().mockResolvedValue({
+      jobs: [],
+      sources: [
+        {
+          source: "jobinja.ir",
+          found: 31,
+          accepted: 0,
+          rejected: 10,
+          evaluated: 6,
+          error: "FETCH_OR_VALIDATION_FAILED",
+        },
+      ],
+      partial: true,
+    }),
   };
   const result = await new GuestDiscoveryService(
     agent as unknown as AgentSearchService,

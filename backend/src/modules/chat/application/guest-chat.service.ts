@@ -1,7 +1,10 @@
 import { ContextService } from "../domain/context.service";
 import { chatReply } from "../domain/chat-reply";
 import { emptyContext, ConversationConflict } from "../domain/conversation";
-import { GuestDiscoveryService } from "./guest-discovery.service";
+import {
+  GuestDiscoveryService,
+  GuestProgress,
+} from "./guest-discovery.service";
 import {
   GUEST_MESSAGE_LIMIT,
   GuestConversation,
@@ -48,24 +51,32 @@ export class GuestChatService {
       return this.view(null);
     return this.view(session);
   }
-  async send(tokenHash: string, message: string) {
+  async send(tokenHash: string, message: string, publish?: GuestProgress) {
     if (this.pending.has(tokenHash)) throw new ConversationConflict();
     this.pending.add(tokenHash);
     try {
-      return await this.sendTurn(tokenHash, message);
+      return await this.sendTurn(tokenHash, message, publish);
     } finally {
       this.pending.delete(tokenHash);
     }
   }
-  private async sendTurn(tokenHash: string, message: string) {
+  private async sendTurn(
+    tokenHash: string,
+    message: string,
+    publish?: GuestProgress,
+  ) {
     const previous =
       (await this.repository.get(tokenHash)) ??
       (await this.repository.create(tokenHash));
     this.available(previous);
     if (previous.turns >= GUEST_MESSAGE_LIMIT) throw new GuestLimitReached();
+    await publish?.("context.processing", {});
     const result = await this.extractor.resolve(message, {
       searchContext: previous.context.searchContext,
       candidateFacts: previous.context.candidateFacts,
+    });
+    await publish?.("context.updated", {
+      searchContext: result.context.searchContext,
     });
     let reply = chatReply(result);
     let guestDiscovery = previous.context.guestDiscovery;
@@ -74,9 +85,9 @@ export class GuestChatService {
       result.context.searchContext.targetRoles.length &&
       ["JOB_SEARCH", "UPDATE_SEARCH"].includes(result.intent)
     ) {
-      guestDiscovery = await this.discovery.search(
-        result.context.searchContext,
-      );
+      guestDiscovery = publish
+        ? await this.discovery.search(result.context.searchContext, publish)
+        : await this.discovery.search(result.context.searchContext);
       reply = guestDiscovery.error
         ? "جستجو انجام شد، اما منابع شغلی پاسخ قابل استفاده ندادند. شرایطت حفظ شده؛ برای تلاش دوباره بنویس «دوباره جستجو کن»."
         : guestDiscovery.jobs.length
@@ -86,6 +97,7 @@ export class GuestChatService {
         reply += " بعضی منابع کامل بررسی نشدند.";
     }
     const time = new Date().toISOString();
+    await publish?.("results.saving", {});
     const sequence = previous.turns * 2;
     const next: GuestConversation = {
       ...previous,

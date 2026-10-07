@@ -4,7 +4,11 @@ import { readRunStream } from "@/lib/chat-run-stream";
 import { useChatStore } from "./useChatStore";
 import { runFinished, type ChatRunView, type RunEvent } from "@/types/chat-run";
 import type { Conversation } from "@/types/chat";
-import type { DiscoveryJob, DiscoveryResult } from "@/types/discovery";
+import type {
+  DiscoveryJob,
+  DiscoveryResult,
+  DiscoveryIssue,
+} from "@/types/discovery";
 
 interface RunState {
   generation: number;
@@ -271,16 +275,31 @@ export const useChatRunStore = create<RunState>((set, get) => ({
     if (
       event.type === "source.completed" ||
       event.type === "source.failed" ||
-      event.type === "source.started"
+      event.type === "source.started" ||
+      event.type === "source.progress"
     ) {
       const source = data.source as string;
+      const previous = run.sources.find((item) => item.source === source);
       next.sources = [
         ...run.sources.filter((item) => item.source !== source),
         {
           source,
-          found: Number(data.found ?? 0),
-          accepted: Number(data.accepted ?? 0),
-          rejected: Number(data.rejected ?? 0),
+          found: Number(
+            data.found ??
+              (event.type === "source.progress" ? previous?.found : 0) ??
+              0,
+          ),
+          accepted: Number(
+            data.accepted ??
+              (event.type === "source.progress" ? previous?.accepted : 0) ??
+              0,
+          ),
+          rejected: Number(
+            data.rejected ??
+              (event.type === "source.progress" ? previous?.rejected : 0) ??
+              0,
+          ),
+          ...(data.issue ? { issue: data.issue as DiscoveryIssue } : {}),
           ...(event.type === "source.failed"
             ? { error: "SOURCE_UNAVAILABLE" }
             : {}),
