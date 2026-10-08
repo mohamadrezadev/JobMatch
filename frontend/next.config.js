@@ -4,7 +4,11 @@ const path = require("node:path");
 /** @type {import('next').NextConfig} */
 module.exports = (phase) => ({
   reactStrictMode: true,
-  output: "standalone",
+  // Next's standalone packager creates pnpm symlinks, which Windows blocks
+  // unless Developer Mode/elevated privileges are enabled. Container and
+  // production Linux builds still emit the standalone artifact used by the
+  // Dockerfile; local Windows builds verify the application without it.
+  output: process.platform === "win32" ? undefined : "standalone",
   outputFileTracingRoot: path.join(__dirname, ".."),
   // Development and production builds must not write to the same cache.
   distDir: phase === PHASE_DEVELOPMENT_SERVER ? ".next-dev" : ".next",
@@ -12,7 +16,12 @@ module.exports = (phase) => ({
   async rewrites() {
     const backend = process.env.API_INTERNAL_URL;
     return backend
-      ? [{ source: "/api/:path*", destination: `${backend.replace(/\/$/, "")}/api/:path*` }]
+      ? [
+          {
+            source: "/api/:path*",
+            destination: `${backend.replace(/\/$/, "")}/api/:path*`,
+          },
+        ]
       : [];
   },
   async headers() {

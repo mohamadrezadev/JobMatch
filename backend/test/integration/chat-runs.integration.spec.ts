@@ -12,6 +12,7 @@ import { JobDiscoveryService } from "../../src/modules/job-discovery/application
 import { PrismaDiscoveryRepository } from "../../src/modules/job-discovery/infrastructure/prisma-discovery.repository";
 import { ChatRunService } from "../../src/modules/chat-runs/chat-run.service";
 import { ChatRunController } from "../../src/modules/chat-runs/chat-run.controller";
+import { JobDiscoveryController } from "../../src/modules/job-discovery/presentation/job-discovery.controller";
 import {
   DiscoveryError,
   DiscoveredJob,
@@ -63,7 +64,10 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
       _intent: unknown,
       _signal: AbortSignal,
       progress?: DiscoveryProgress,
-      options?: { sources: string[] },
+      options?: {
+        sources: string[];
+        budgets?: Map<string, { seenUrls: Set<string> }>;
+      },
     ) {
       if (unavailable)
         throw new DiscoveryError("JOB_DISCOVERY_UNAVAILABLE", 503);
@@ -83,11 +87,48 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
       await progress?.sourceStarted("jobinja.ir");
       await progress?.sourceStarted("jobvision.ir");
       await progress?.sourceProgress?.("jobvision.ir", "extract");
-      await progress?.jobCandidate(job);
-      await progress?.jobCandidate({
-        ...job,
+      // Mirror the real provider: a URL already seen in an earlier wave of the
+      // same run is a duplicate, not re-sent through jobCandidate again.
+      const seen =
+        options?.budgets?.get(job.source)?.seenUrls ?? new Set<string>();
+      if (!seen.has(job.sourceUrl)) {
+        seen.add(job.sourceUrl);
+        progress?.candidateObserved?.({
+          source: job.source,
+          url: job.sourceUrl,
+          status: "DISCOVERED",
+        });
+        const accepted = await progress?.jobCandidate(job);
+        progress?.candidateObserved?.({
+          source: job.source,
+          url: job.sourceUrl,
+          status: accepted ? "MATCHED" : "REJECTED",
+          ...(accepted ? {} : { errorCode: "FILTERED_OUT" }),
+        });
+      } else {
+        progress?.candidateObserved?.({
+          source: job.source,
+          url: job.sourceUrl,
+          status: "REJECTED",
+          errorCode: "DUPLICATE",
+        });
+      }
+      const duplicateUrl = "https://jobvision.ir/jobs/duplicate";
+      const seenJobvision =
+        options?.budgets?.get("jobvision.ir")?.seenUrls ?? new Set<string>();
+      if (!seenJobvision.has(duplicateUrl)) {
+        seenJobvision.add(duplicateUrl);
+        await progress?.jobCandidate({
+          ...job,
+          source: "jobvision.ir",
+          sourceUrl: duplicateUrl,
+        });
+      }
+      progress?.candidateObserved?.({
         source: "jobvision.ir",
-        sourceUrl: "https://jobvision.ir/jobs/duplicate",
+        url: duplicateUrl,
+        status: "REJECTED",
+        errorCode: "DUPLICATE",
       });
       if (blocked)
         await new Promise<void>((resolve) => {
@@ -138,11 +179,12 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
       provider,
     );
     @Module({
-      controllers: [ChatRunController],
+      controllers: [ChatRunController, JobDiscoveryController],
       providers: [
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: { getOrThrow: () => secret } },
         JwtStrategy,
+        { provide: JobDiscoveryService, useValue: discovery },
         {
           provide: ChatRunService,
           useFactory: () => new ChatRunService(prisma, chat, discovery),
@@ -359,6 +401,42 @@ databaseSuite("Live runs with HTTP SSE, real JWT and PostgreSQL", () => {
         })
       ).status,
     ).toBe(400);
+    const discoveryRun = await prisma.jobDiscoveryRun.findFirstOrThrow({
+      where: { conversationId: run.conversationId! },
+      orderBy: { startedAt: "desc" },
+    });
+    const persistedCandidates = await prisma.jobDiscoveryCandidate.findMany({
+      where: { runId: discoveryRun.id },
+    });
+    expect(persistedCandidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: job.sourceUrl,
+          status: "MATCHED",
+        }),
+        expect.objectContaining({
+          canonicalUrl: "https://jobvision.ir/jobs/duplicate",
+          status: "REJECTED",
+          errorCode: "DUPLICATE",
+        }),
+      ]),
+    );
+    const forbidden = await fetch(
+      `${base}/api/job-discovery/runs/${discoveryRun.id}/candidates`,
+      { headers: auth(other) },
+    );
+    expect(forbidden.status).toBe(404);
+    const candidatesResponse = await fetch(
+      `${base}/api/job-discovery/runs/${discoveryRun.id}/candidates?status=MATCHED`,
+      { headers: auth() },
+    );
+    expect(candidatesResponse.status).toBe(200);
+    const candidatesBody = await json(candidatesResponse);
+    expect(candidatesBody.data.candidates).toHaveLength(1);
+    expect(candidatesBody.data.candidates[0]).toMatchObject({
+      status: "MATCHED",
+      url: job.sourceUrl,
+    });
   });
   it("commits and completes the requested one-job goal while provider work is still blocked", async () => {
     blocked = true;

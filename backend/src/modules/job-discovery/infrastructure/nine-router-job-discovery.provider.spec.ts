@@ -779,4 +779,211 @@ describe("Search/fetch boundary", () => {
     expect(result.jobs.length).toBeGreaterThan(0);
     expect(client.fetch.mock.calls.length).toBeLessThanOrEqual(10);
   });
+  describe("candidate lifecycle events", () => {
+    const observe = () => ({
+      sourceStarted: jest.fn(),
+      sourceCompleted: jest.fn(),
+      jobCandidate: jest.fn(async () => true),
+      candidateObserved: jest.fn(),
+    });
+    it("emits DISCOVERED for every URL returned by search", async () => {
+      client.search.mockResolvedValue([
+        "https://jobvision.ir/jobs/1",
+        "https://jobvision.ir/jobs/2",
+      ]);
+      const progress = observe();
+      await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobvision.ir"],
+      ).discover({ targetRoles: ["Backend Developer"] }, signal, progress);
+      const discovered = progress.candidateObserved.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.status === "DISCOVERED");
+      expect(discovered.map((event) => event.url).sort()).toEqual([
+        "https://jobvision.ir/jobs/1",
+        "https://jobvision.ir/jobs/2",
+      ]);
+    });
+    it("emits REJECTED/DUPLICATE for a URL already seen this run", async () => {
+      client.search.mockResolvedValue(["https://jobvision.ir/jobs/1"]);
+      const budgets = new Map<string, SourceDiscoveryBudget>([
+        [
+          "jobvision.ir",
+          {
+            remainingFetches: 10,
+            seenUrls: new Set(["https://jobvision.ir/jobs/1"]),
+          },
+        ],
+      ]);
+      const progress = observe();
+      await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobvision.ir"],
+      ).discover({ targetRoles: ["Backend Developer"] }, signal, progress, {
+        sources: ["jobvision.ir"],
+        budgets,
+      });
+      expect(client.fetch).not.toHaveBeenCalled();
+      expect(progress.candidateObserved).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "REJECTED", errorCode: "DUPLICATE" }),
+      );
+    });
+    it("emits REJECTED/SOURCE_REJECTED for a disallowed domain", async () => {
+      client.search.mockResolvedValue(["https://not-allowed.example/jobs/1"]);
+      const progress = observe();
+      await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobvision.ir"],
+      ).discover({ targetRoles: ["Backend Developer"] }, signal, progress, {
+        sources: ["jobvision.ir"],
+      });
+      expect(client.fetch).not.toHaveBeenCalled();
+      expect(progress.candidateObserved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "REJECTED",
+          errorCode: "SOURCE_REJECTED",
+        }),
+      );
+      expect(progress.candidateObserved).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: "https://not-allowed.example/jobs/1",
+          status: "DISCOVERED",
+        }),
+      );
+    });
+    it("emits REJECTED/NOT_JOB_DETAIL for a listing page with no useful links", async () => {
+      client.search.mockResolvedValue(["https://jobvision.ir/jobs"]);
+      client.fetch.mockResolvedValue({
+        url: "https://jobvision.ir/jobs",
+        content: "Job list",
+        links: [],
+      });
+      const progress = observe();
+      await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobvision.ir"],
+      ).discover({ targetRoles: ["Backend Developer"] }, signal, progress);
+      expect(progress.candidateObserved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "REJECTED",
+          errorCode: "NOT_JOB_DETAIL",
+        }),
+      );
+    });
+    it("emits REJECTED/CLOSED_JOB for an explicitly closed posting", async () => {
+      client.search.mockResolvedValue(["https://jobinja.ir/jobs/1"]);
+      client.fetch.mockResolvedValue({
+        url: "https://jobinja.ir/jobs/1",
+        content: "این آگهی بسته شده است\n" + html,
+      });
+      const progress = observe();
+      await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobinja.ir"],
+      ).discover({ targetRoles: ["Backend Developer"] }, signal, progress, {
+        sources: ["jobinja.ir"],
+      });
+      expect(progress.candidateObserved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "REJECTED",
+          errorCode: "CLOSED_JOB",
+        }),
+      );
+    });
+    it("emits FAILED with the existing error code for a fetch failure", async () => {
+      client.search.mockResolvedValue(["https://jobvision.ir/jobs/1"]);
+      client.fetch.mockRejectedValue(new DiscoveryError("FETCH_TIMEOUT", 502));
+      const progress = observe();
+      await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobvision.ir"],
+      ).discover({ targetRoles: ["Backend Developer"] }, signal, progress);
+      expect(progress.candidateObserved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "FAILED",
+          errorCode: "FETCH_TIMEOUT",
+        }),
+      );
+    });
+    it("emits TIMED_OUT for a URL cut short by cancellation mid-flight", async () => {
+      const controller = new AbortController();
+      client.search.mockResolvedValue(["https://jobvision.ir/jobs/1"]);
+      const progress = {
+        sourceStarted: jest.fn(),
+        sourceCompleted: jest.fn(),
+        jobCandidate: jest.fn(),
+        candidateObserved: jest.fn(),
+        sourceProgress: async (_source: string, stage: string) => {
+          if (stage === "fetch") controller.abort();
+        },
+      };
+      await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobvision.ir"],
+      ).discover(
+        { targetRoles: ["Backend Developer"] },
+        controller.signal,
+        progress,
+      );
+      expect(progress.candidateObserved).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "TIMED_OUT" }),
+      );
+    });
+    it("marks allowlisted queued URLs timed out when cancellation precedes processing", async () => {
+      const controller = new AbortController();
+      client.search.mockImplementationOnce(async () => {
+        controller.abort();
+        return ["https://jobvision.ir/jobs/queued"];
+      });
+      const progress = observe();
+      await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobvision.ir"],
+      ).discover(
+        { targetRoles: ["Backend Developer"] },
+        controller.signal,
+        progress,
+      );
+      expect(progress.candidateObserved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: "https://jobvision.ir/jobs/queued",
+          status: "TIMED_OUT",
+          stage: "validate",
+        }),
+      );
+    });
+    it("emits MATCHED when a job is accepted, REJECTED/FILTERED_OUT when declined", async () => {
+      client.search.mockResolvedValue(["https://jobvision.ir/jobs/1"]);
+      const accepted = observe();
+      await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobvision.ir"],
+      ).discover({ targetRoles: ["Backend Developer"] }, signal, accepted);
+      expect(accepted.candidateObserved).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "MATCHED" }),
+      );
+      const declined = observe();
+      declined.jobCandidate = jest.fn(async () => false);
+      await new NineRouterJobDiscoveryProvider(
+        client as unknown as NineRouterClient,
+        validator,
+        ["jobvision.ir"],
+      ).discover({ targetRoles: ["Backend Developer"] }, signal, declined);
+      expect(declined.candidateObserved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "REJECTED",
+          errorCode: "FILTERED_OUT",
+        }),
+      );
+    });
+  });
 });

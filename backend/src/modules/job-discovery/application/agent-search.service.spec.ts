@@ -135,7 +135,7 @@ it("shares budgets across five initial waves and at most four distinct queries",
 });
 it("merges each attempt once and clears a recovered source error", async () => {
   let attempt = 0;
-  discover.mockImplementation(async (_goal, _signal, progress, options) => {
+  discover.mockImplementation(async (_goal, _signal, progress, _options) => {
     attempt++;
     const current = {
       ...report("jobinja.ir"),
@@ -382,6 +382,60 @@ it("preserves a completed source when another concurrent source exceeds the dead
     result.sources.filter((source) => source.error === "TIMEOUT"),
   ).toHaveLength(1);
   expect(result.partial).toBe(true);
+});
+it("forwards terminal candidate events emitted after batch cancellation", async () => {
+  const controller = new AbortController();
+  const candidateObserved = jest.fn();
+  discover.mockImplementationOnce(async (_goal, _signal, progress, options) => {
+    controller.abort();
+    progress.candidateObserved?.({
+      source: options.sources[0],
+      url: `https://${options.sources[0]}/jobs/timed-out`,
+      status: "TIMED_OUT",
+      stage: "fetch",
+    });
+    return { jobs: [], sources: options.sources.map(report) };
+  });
+  await new AgentSearchService(provider, new AgentPlannerService()).search(
+    goal,
+    controller.signal,
+    {
+      sourceStarted: jest.fn(),
+      sourceCompleted: jest.fn(),
+      jobCandidate: jest.fn(async () => false),
+      candidateObserved,
+    },
+  );
+  expect(candidateObserved).toHaveBeenCalledWith(
+    expect.objectContaining({ status: "TIMED_OUT", stage: "fetch" }),
+  );
+});
+it("bounds a hanging non-final wave so later waves still run within the deadline", async () => {
+  jest.useFakeTimers();
+  try {
+    discover.mockImplementation(() => new Promise(() => undefined));
+    const deadline = Date.now() + 100000;
+    const resultPromise = new AgentSearchService(
+      provider,
+      new AgentPlannerService(),
+    ).search(goal, signal(), undefined, publish, deadline);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(discover).toHaveBeenCalledTimes(1);
+    // Five waves share the 100s deadline (~20s each). The old behavior armed
+    // every wave's cancellation timer with the full remaining deadline, so a
+    // hanging first wave would have blocked the second wave until t=100000.
+    await jest.advanceTimersByTimeAsync(25000);
+    expect(discover.mock.calls.length).toBeGreaterThanOrEqual(2);
+    await jest.advanceTimersByTimeAsync(100000);
+    const result = await resultPromise;
+    expect(discover).toHaveBeenCalledTimes(5);
+    expect(result.partial).toBe(true);
+    expect(
+      result.sources.filter((source) => source.error === "TIMEOUT"),
+    ).not.toHaveLength(0);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 it("counts duplicate and filtered jobs only once after applying user constraints", async () => {
   discover.mockImplementation(async (_goal, _signal, _progress, options) => ({

@@ -6,7 +6,12 @@ import {
   JobSearchIntent,
   ConversationContext,
 } from "../../chat/domain/conversation";
-import { DiscoveryRepository } from "../application/discovery.ports";
+import {
+  DiscoveryRepository,
+  CandidateLifecycleEvent,
+  CandidateListOptions,
+  CandidateListResult,
+} from "../application/discovery.ports";
 import {
   DiscoveredJob,
   DiscoveryError,
@@ -313,5 +318,77 @@ export class PrismaDiscoveryRepository extends DiscoveryRepository {
         ...(sources ? { sourceReports: json(sources) } : {}),
       },
     });
+  }
+  async recordCandidate(
+    runId: string,
+    event: CandidateLifecycleEvent,
+  ): Promise<void> {
+    // MATCHED is terminal: a URL confirmed as a real job in one wave must not
+    // be downgraded by a later wave re-discovering it as a plain duplicate.
+    const existing = await this.prisma.jobDiscoveryCandidate.findUnique({
+      where: { runId_canonicalUrl: { runId, canonicalUrl: event.url } },
+    });
+    if (existing?.status === "MATCHED") return;
+    const now = new Date();
+    await this.prisma.jobDiscoveryCandidate.upsert({
+      where: { runId_canonicalUrl: { runId, canonicalUrl: event.url } },
+      create: {
+        runId,
+        source: event.source,
+        canonicalUrl: event.url,
+        status: event.status,
+        errorCode: event.errorCode,
+        stage: event.stage,
+        discoveredAt: now,
+        lastAttemptAt: now,
+      },
+      update: {
+        status: event.status,
+        errorCode: event.errorCode,
+        stage: event.stage,
+        lastAttemptAt: now,
+        retryCount: { increment: 1 },
+      },
+    });
+  }
+  async listCandidates(
+    userId: string,
+    runId: string,
+    options?: CandidateListOptions,
+  ): Promise<CandidateListResult> {
+    const run = await this.prisma.jobDiscoveryRun.findFirst({
+      where: { id: runId, userId },
+    });
+    if (!run) throw new DiscoveryError("JOB_DISCOVERY_RUN_NOT_FOUND", 404);
+    const requestedLimit = options?.limit;
+    const limit =
+      typeof requestedLimit === "number" && Number.isFinite(requestedLimit)
+        ? Math.max(1, Math.min(200, Math.floor(requestedLimit)))
+        : 50;
+    const rows = await this.prisma.jobDiscoveryCandidate.findMany({
+      where: {
+        runId,
+        OR: [{ errorCode: null }, { errorCode: { not: "SOURCE_REJECTED" } }],
+        ...(options?.status ? { status: options.status } : {}),
+      },
+      orderBy: { id: "asc" },
+      take: limit + 1,
+      ...(options?.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+    });
+    const page = rows.slice(0, limit);
+    return {
+      candidates: page.map((row) => ({
+        runId: row.runId,
+        source: row.source,
+        url: row.canonicalUrl,
+        status: row.status as CandidateLifecycleEvent["status"],
+        ...(row.errorCode ? { errorCode: row.errorCode } : {}),
+        ...(row.stage ? { stage: row.stage } : {}),
+        discoveredAt: row.discoveredAt.toISOString(),
+        lastAttemptAt: row.lastAttemptAt.toISOString(),
+        retryCount: row.retryCount,
+      })),
+      ...(rows.length > limit ? { nextCursor: page[page.length - 1].id } : {}),
+    };
   }
 }

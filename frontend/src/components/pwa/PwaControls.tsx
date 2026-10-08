@@ -2,19 +2,42 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BrandLogo } from "@/components/ui/BrandLogo";
+import { usePwaInstallStore } from "@/stores/usePwaInstallStore";
 
 interface InstallEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+export function PwaInstallButton() {
+  const installed = usePwaInstallStore((state) => state.installed);
+  const openInstallDialog = usePwaInstallStore(
+    (state) => state.openInstallDialog,
+  );
+  if (installed) return null;
+  return (
+    <button
+      type="button"
+      onClick={openInstallDialog}
+      aria-haspopup="dialog"
+      aria-label="نصب کارمچ"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-brand-500 dark:border-dark-border"
+    >
+      <BrandLogo className="h-5 w-5" />
+    </button>
+  );
+}
+
 export function PwaControls() {
-  const [installed, setInstalled] = useState(true);
+  const setInstalled = usePwaInstallStore((state) => state.setInstalled);
+  const open = usePwaInstallStore((state) => state.open);
+  const closeInstallDialog = usePwaInstallStore(
+    (state) => state.closeInstallDialog,
+  );
   const [ios, setIos] = useState(false);
   const [offline, setOffline] = useState(false);
   const [prompt, setPrompt] = useState<InstallEvent | null>(null);
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [installNotice, setInstallNotice] = useState("");
   const [updateError, setUpdateError] = useState("");
@@ -41,7 +64,7 @@ export function PwaControls() {
     const didInstall = () => {
       setInstalled(true);
       setPrompt(null);
-      setOpen(false);
+      closeInstallDialog();
     };
     setIos(
       /iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -63,7 +86,7 @@ export function PwaControls() {
       window.removeEventListener("beforeinstallprompt", beforeInstall);
       window.removeEventListener("appinstalled", didInstall);
     };
-  }, []);
+  }, [closeInstallDialog, setInstalled]);
 
   useEffect(() => {
     if (open && !dialog.current?.open) dialog.current?.showModal();
@@ -151,7 +174,7 @@ export function PwaControls() {
       const choice = await event.userChoice;
       if (choice.outcome === "accepted") {
         setInstalled(true);
-        setOpen(false);
+        closeInstallDialog();
       } else
         setInstallNotice(
           "نصب انجام نشد. می‌توانی بعداً از منوی مرورگر برنامه را نصب کنی.",
@@ -191,8 +214,11 @@ export function PwaControls() {
           نیاز دارند.
         </p>
       )}
-      <div className="fixed bottom-20 left-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-start gap-2 md:bottom-6">
-        {waiting && (
+      {waiting && (
+        <div
+          dir="ltr"
+          className="fixed bottom-20 right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-2 md:bottom-6"
+        >
           <section
             aria-label="به‌روزرسانی کارمچ"
             className="max-w-sm rounded-2xl border border-brand-500/30 bg-light-surface p-4 text-sm shadow-lg dark:bg-dark-surface"
@@ -215,25 +241,13 @@ export function PwaControls() {
               </p>
             )}
           </section>
-        )}
-        {!installed && (
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            aria-haspopup="dialog"
-            aria-label="نصب کارمچ"
-            className="flex items-center gap-2 rounded-xl border border-slate-200 bg-light-surface px-3 py-2 text-xs font-bold text-brand-500 shadow-sm dark:border-dark-border dark:bg-dark-surface"
-          >
-            <BrandLogo className="h-6 w-6" />
-            <span className="hidden sm:inline">نصب کارمچ</span>
-          </button>
-        )}
-      </div>
+        </div>
+      )}
       <dialog
         ref={dialog}
         aria-labelledby="install-title"
-        onCancel={() => setOpen(false)}
-        onClose={() => setOpen(false)}
+        onCancel={closeInstallDialog}
+        onClose={closeInstallDialog}
         className="m-auto w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-slate-200 bg-light-surface p-6 text-slate-800 shadow-xl backdrop:bg-black/50 dark:border-dark-border dark:bg-dark-surface dark:text-slate-100"
       >
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -242,7 +256,7 @@ export function PwaControls() {
           </h2>
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={closeInstallDialog}
             aria-label="بستن راهنمای نصب"
             className="rounded-lg px-2 py-1"
           >

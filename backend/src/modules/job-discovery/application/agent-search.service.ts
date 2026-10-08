@@ -1,4 +1,5 @@
 import { JobSearchIntent } from "../../chat/domain/conversation";
+import { buildAgentRunBudget, waveTimeoutMs } from "../domain/agent-run-budget";
 import {
   discoveryWaves,
   mergeSourceMetrics,
@@ -87,6 +88,13 @@ export class AgentSearchService {
     const reports = new Map<string, SourceReport>();
     const rounds = queryRoundsFor(goal).slice(0, MAX_AGENT_STEPS);
     const waves = discoveryWaves(allowed, rounds);
+    const budget = buildAgentRunBudget(
+      deadline,
+      allowed,
+      MAX_SOURCE_FETCHES,
+      MAX_AGENT_STEPS,
+      targetValidJobs,
+    );
     const budgets = new Map<string, SourceDiscoveryBudget>(
       allowed.map((source) => [
         source,
@@ -230,7 +238,10 @@ export class AgentSearchService {
       const cancel = () => batch.abort();
       signal.addEventListener("abort", cancel, { once: true });
       if (signal.aborted) cancel();
-      const timer = setTimeout(cancel, Math.max(1, deadline - Date.now()));
+      const timer = setTimeout(
+        cancel,
+        waveTimeoutMs(budget, waveIndex - 1, waves.length),
+      );
       const reportFor = (source: string) => {
         let report = attemptReports.get(source);
         if (!report) {
@@ -315,6 +326,13 @@ export class AgentSearchService {
             () => undefined,
           );
           return task;
+        },
+        candidateObserved: (event) => {
+          // Terminal events are commonly emitted from a provider's finally
+          // block after cancellation. Dropping callbacks merely because the
+          // batch is already aborted loses the TIMED_OUT outcome.
+          if (selected.includes(event.source))
+            progress?.candidateObserved?.(event);
         },
       };
       try {

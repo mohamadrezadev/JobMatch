@@ -4,7 +4,6 @@ import {
   IsArray,
   ArrayMaxSize,
   MaxLength,
-  IsOptional,
   IsInt,
   Min,
 } from "class-validator";

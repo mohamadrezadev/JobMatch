@@ -8,6 +8,7 @@ import {
   DiscoveryProgress,
   DiscoveryOptions,
   MAX_SOURCE_FETCHES,
+  CandidateStatus,
 } from "../application/discovery.ports";
 import { JobPageDecisionProvider } from "../application/job-page-decision.port";
 import {
@@ -36,7 +37,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
     started: number,
     signal: AbortSignal,
     url?: string,
-  ) {
+  ): string {
     const transport = axios.isAxiosError(error) ? error : undefined;
     const detail = error as {
       attempts?: number;
@@ -83,6 +84,7 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
           (error instanceof APIError ? error.status : undefined),
       }),
     );
+    return code;
   }
   constructor(
     private readonly client: NineRouterClient,
@@ -126,6 +128,32 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
             metrics,
           };
         const observed = () => progress?.sourceObserved?.(report);
+        // Diagnostic only: never awaited, and a bad URL or a throwing
+        // listener must never affect discovery's own control flow.
+        const emitCandidate = (
+          url: string,
+          status: CandidateStatus,
+          errorCode?: string,
+          stage?: string,
+        ) => {
+          try {
+            let identity = url;
+            try {
+              identity = canonicalUrl(url);
+            } catch {
+              /* Use the raw url when it doesn't parse. */
+            }
+            progress?.candidateObserved?.({
+              source,
+              url: identity,
+              status,
+              ...(errorCode ? { errorCode } : {}),
+              ...(stage ? { stage } : {}),
+            });
+          } catch {
+            /* Diagnostic only. */
+          }
+        };
         const timed = async <T>(
           key: "searchMs" | "validationMs" | "fetchMs" | "aiMs" | "v1mMs",
           operation: () => Promise<T>,
@@ -193,7 +221,14 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
             budget.searchedLimit = maxResults;
             budget.searchExhausted = urls.length < maxResults;
             report.found = urls.length;
-            queue.push(...urls.filter((url) => !queue.includes(url)));
+            const newUrls = urls.filter((url) => !queue.includes(url));
+            queue.push(...newUrls);
+            // Do not expose raw search output before the synchronous source
+            // allowlist check. Rejected URLs still receive SOURCE_REJECTED
+            // when their queue entry is processed.
+            for (const url of newUrls)
+              if (this.validator.searchCandidate(url))
+                emitCandidate(url, "DISCOVERED");
             observed();
           }
           let fetches = 0;
@@ -219,227 +254,292 @@ export class NineRouterJobDiscoveryProvider extends JobDiscoveryProvider {
                 let stage = "validate";
                 let diagnosticUrl = url;
                 const started = Date.now();
-                if (signal.aborted) return;
-                if (!this.validator.searchCandidate(url)) {
-                  report.rejected++;
-                  return;
-                }
-                const identity = canonicalUrl(url);
-                if (seen.has(identity)) {
-                  metrics.duplicates++;
-                  observed();
-                  return;
-                }
-                seen.add(identity);
+                let outcome: {
+                  status: CandidateStatus;
+                  errorCode?: string;
+                } | null = null;
                 try {
-                  let resolved: string;
-                  try {
-                    resolved = await timed("validationMs", () =>
-                      this.validator.resolveSearch(url, signal),
-                    );
-                  } catch (error) {
-                    // A verified remote provider can resolve a public Google bridge
-                    // which rejects direct requests, but must return final_url.
-                    if (
-                      error instanceof DiscoveryError &&
-                      ((error.code === "SEARCH_LINK_UNRESOLVED" &&
-                        this.validator.grounding(url)) ||
-                        (error.code === "SOURCE_UNAVAILABLE" &&
-                          this.validator.allowed(url)))
-                    )
-                      resolved = url;
-                    else throw error;
-                  }
                   if (signal.aborted) return;
-                  const resolvedIdentity = canonicalUrl(resolved);
-                  if (
-                    resolvedIdentity !== identity &&
-                    seen.has(resolvedIdentity)
-                  )
-                    return;
-                  seen.add(resolvedIdentity);
-                  if (!canFetch()) return;
-                  budget.remainingFetches--;
-                  fetches++;
-                  stage = "fetch";
-                  await phase("fetch");
-                  if (signal.aborted) {
-                    budget.remainingFetches++;
-                    return;
-                  }
-                  metrics.urlsFetched++;
-                  observed();
-                  const page = await timed("fetchMs", () =>
-                    this.client.fetch(resolved, signal),
-                  );
-                  if (signal.aborted) return;
-                  if (
-                    this.validator.grounding(resolved) &&
-                    !page.finalUrlVerified
-                  )
-                    throw new DiscoveryError("FETCH_PROVENANCE_MISSING", 502);
-                  if (!this.validator.allowed(page.url)) {
+                  if (!this.validator.searchCandidate(url)) {
                     report.rejected++;
-                    return;
-                  }
-                  stage = "validate";
-                  await timed("validationMs", () =>
-                    this.validator.validate(page.url, signal),
-                  );
-                  const finalIdentity = canonicalUrl(page.url);
-                  if (
-                    finalIdentity !== resolvedIdentity &&
-                    seen.has(finalIdentity)
-                  )
-                    return;
-                  seen.add(finalIdentity);
-                  diagnosticUrl = page.url;
-                  stage = "page";
-                  const pageError = pageFailureCode(page.content);
-                  if (pageError) throw new DiscoveryError(pageError, 502);
-                  if (!jobDetailUrl(page.url)) {
-                    const details: string[] = [];
-                    for (const link of page.links ?? []) {
-                      let target: string;
-                      try {
-                        target = canonicalUrl(
-                          new URL(link, page.url).toString(),
-                        );
-                      } catch {
-                        continue;
-                      }
-                      if (
-                        this.validator.allowed(target) &&
-                        jobDetailUrl(target) &&
-                        !seen.has(target) &&
-                        !details.includes(target)
-                      ) {
-                        details.push(target);
-                        report.found++;
-                      }
-                    }
-                    // Search can fill all ten slots with listing/grounding links.
-                    // Prefer discovered details so those listings cannot consume the
-                    // whole budget without ever visiting an advertised position.
-                    const terms = intent.targetRoles
-                      .flatMap((role) =>
-                        normalizeText(role)
-                          .replace(/developer/g, "")
-                          .replace(/حسابداری/g, "حسابدار accountant accounting")
-                          .split(/[\s.]+/),
-                      )
-                      .filter((term) => term.length > 2);
-                    const relevance = (target: string) => {
-                      let text = target;
-                      try {
-                        text = decodeURIComponent(new URL(target).pathname);
-                      } catch {
-                        /* Use original text. */
-                      }
-                      return terms.filter((term) =>
-                        normalizeText(text).includes(term),
-                      ).length;
+                    outcome = {
+                      status: "REJECTED",
+                      errorCode: "SOURCE_REJECTED",
                     };
-                    details.sort((a, b) => relevance(b) - relevance(a));
-                    const remaining = budget.remainingFetches;
-                    queue.splice(
-                      0,
-                      queue.length,
-                      ...[...new Set([...details, ...queue])].slice(
-                        0,
-                        Math.max(0, remaining),
-                      ),
+                    return;
+                  }
+                  const identity = canonicalUrl(url);
+                  if (seen.has(identity)) {
+                    metrics.duplicates++;
+                    observed();
+                    outcome = { status: "REJECTED", errorCode: "DUPLICATE" };
+                    return;
+                  }
+                  seen.add(identity);
+                  try {
+                    let resolved: string;
+                    try {
+                      resolved = await timed("validationMs", () =>
+                        this.validator.resolveSearch(url, signal),
+                      );
+                    } catch (error) {
+                      // A verified remote provider can resolve a public Google bridge
+                      // which rejects direct requests, but must return final_url.
+                      if (
+                        error instanceof DiscoveryError &&
+                        ((error.code === "SEARCH_LINK_UNRESOLVED" &&
+                          this.validator.grounding(url)) ||
+                          (error.code === "SOURCE_UNAVAILABLE" &&
+                            this.validator.allowed(url)))
+                      )
+                        resolved = url;
+                      else throw error;
+                    }
+                    if (signal.aborted) return;
+                    const resolvedIdentity = canonicalUrl(resolved);
+                    if (
+                      resolvedIdentity !== identity &&
+                      seen.has(resolvedIdentity)
+                    ) {
+                      outcome = { status: "REJECTED", errorCode: "DUPLICATE" };
+                      return;
+                    }
+                    seen.add(resolvedIdentity);
+                    if (!canFetch()) {
+                      outcome = {
+                        status: "REJECTED",
+                        errorCode: "BUDGET_EXHAUSTED",
+                      };
+                      return;
+                    }
+                    budget.remainingFetches--;
+                    fetches++;
+                    stage = "fetch";
+                    await phase("fetch");
+                    if (signal.aborted) {
+                      budget.remainingFetches++;
+                      return;
+                    }
+                    metrics.urlsFetched++;
+                    observed();
+                    const page = await timed("fetchMs", () =>
+                      this.client.fetch(resolved, signal),
                     );
-                    report.rejected++;
-                    return;
-                  }
-                  if (explicitlyClosed(page.content)) {
-                    report.rejected++;
-                    return;
-                  }
-                  stage = "extract";
-                  await phase("extract");
-                  if (signal.aborted) return;
-                  const parseStarted = Date.now();
-                  let job = normalizeJob(page.content, canonicalUrl(page.url));
-                  metrics.parseMs += Date.now() - parseStarted;
-                  if (!job && this.extractor && !signal.aborted) {
-                    let shouldExtract = true;
-                    if (this.decisionProvider) {
-                      metrics.v1mCalls++;
-                      metrics.v1mPrimaryCalls++;
+                    if (signal.aborted) return;
+                    if (
+                      this.validator.grounding(resolved) &&
+                      !page.finalUrlVerified
+                    )
+                      throw new DiscoveryError("FETCH_PROVENANCE_MISSING", 502);
+                    if (!this.validator.allowed(page.url)) {
+                      report.rejected++;
+                      outcome = {
+                        status: "REJECTED",
+                        errorCode: "SOURCE_REJECTED",
+                      };
+                      return;
+                    }
+                    stage = "validate";
+                    await timed("validationMs", () =>
+                      this.validator.validate(page.url, signal),
+                    );
+                    const finalIdentity = canonicalUrl(page.url);
+                    if (
+                      finalIdentity !== resolvedIdentity &&
+                      seen.has(finalIdentity)
+                    ) {
+                      outcome = { status: "REJECTED", errorCode: "DUPLICATE" };
+                      return;
+                    }
+                    seen.add(finalIdentity);
+                    diagnosticUrl = page.url;
+                    stage = "page";
+                    const pageError = pageFailureCode(page.content);
+                    if (pageError) throw new DiscoveryError(pageError, 502);
+                    if (!jobDetailUrl(page.url)) {
+                      const details: string[] = [];
+                      for (const link of page.links ?? []) {
+                        let target: string;
+                        try {
+                          target = canonicalUrl(
+                            new URL(link, page.url).toString(),
+                          );
+                        } catch {
+                          continue;
+                        }
+                        if (
+                          this.validator.allowed(target) &&
+                          jobDetailUrl(target) &&
+                          !seen.has(target) &&
+                          !details.includes(target)
+                        ) {
+                          details.push(target);
+                          report.found++;
+                          emitCandidate(target, "DISCOVERED");
+                        }
+                      }
+                      // Search can fill all ten slots with listing/grounding links.
+                      // Prefer discovered details so those listings cannot consume the
+                      // whole budget without ever visiting an advertised position.
+                      const terms = intent.targetRoles
+                        .flatMap((role) =>
+                          normalizeText(role)
+                            .replace(/developer/g, "")
+                            .replace(
+                              /حسابداری/g,
+                              "حسابدار accountant accounting",
+                            )
+                            .split(/[\s.]+/),
+                        )
+                        .filter((term) => term.length > 2);
+                      const relevance = (target: string) => {
+                        let text = target;
+                        try {
+                          text = decodeURIComponent(new URL(target).pathname);
+                        } catch {
+                          /* Use original text. */
+                        }
+                        return terms.filter((term) =>
+                          normalizeText(text).includes(term),
+                        ).length;
+                      };
+                      details.sort((a, b) => relevance(b) - relevance(a));
+                      const remaining = budget.remainingFetches;
+                      queue.splice(
+                        0,
+                        queue.length,
+                        ...[...new Set([...details, ...queue])].slice(
+                          0,
+                          Math.max(0, remaining),
+                        ),
+                      );
+                      report.rejected++;
+                      outcome = {
+                        status: "REJECTED",
+                        errorCode: "NOT_JOB_DETAIL",
+                      };
+                      return;
+                    }
+                    if (explicitlyClosed(page.content)) {
+                      report.rejected++;
+                      outcome = { status: "REJECTED", errorCode: "CLOSED_JOB" };
+                      return;
+                    }
+                    stage = "extract";
+                    await phase("extract");
+                    if (signal.aborted) return;
+                    const parseStarted = Date.now();
+                    let job = normalizeJob(
+                      page.content,
+                      canonicalUrl(page.url),
+                    );
+                    metrics.parseMs += Date.now() - parseStarted;
+                    if (!job && this.extractor && !signal.aborted) {
+                      let shouldExtract = true;
+                      if (this.decisionProvider) {
+                        metrics.v1mCalls++;
+                        metrics.v1mPrimaryCalls++;
+                        observed();
+                        const decision = await timed("v1mMs", () =>
+                          this.decisionProvider!.evaluate(
+                            page.content,
+                            canonicalUrl(page.url),
+                            signal,
+                          ),
+                        );
+                        shouldExtract = decision.shouldExtract;
+                        if (decision.mode === "v1m-primary")
+                          metrics.v1mPrimarySuccess++;
+                        else if (decision.mode === "v1m-fallback") {
+                          metrics.v1mPrimaryFailures++;
+                          metrics.v1mFallbackCalls++;
+                          metrics.v1mFallbackSuccess++;
+                        } else {
+                          metrics.v1mPrimaryFailures++;
+                          metrics.v1mFallbackCalls++;
+                          metrics.v1mFallbackFailures++;
+                          metrics.v1mFailOpen++;
+                        }
+                        if (shouldExtract) metrics.v1mAccepted++;
+                        else {
+                          metrics.v1mRejected++;
+                          metrics.aiCallsSaved++;
+                        }
+                        observed();
+                      }
+                      if (!shouldExtract) {
+                        report.rejected++;
+                        outcome = {
+                          status: "REJECTED",
+                          errorCode: "FILTERED_OUT",
+                        };
+                        return;
+                      }
+                      metrics.aiCalls++;
                       observed();
-                      const decision = await timed("v1mMs", () =>
-                        this.decisionProvider!.evaluate(
+                      job = await timed("aiMs", () =>
+                        this.extractor!.extract(
                           page.content,
                           canonicalUrl(page.url),
                           signal,
                         ),
                       );
-                      shouldExtract = decision.shouldExtract;
-                      if (decision.mode === "v1m-primary")
-                        metrics.v1mPrimarySuccess++;
-                      else if (decision.mode === "v1m-fallback") {
-                        metrics.v1mPrimaryFailures++;
-                        metrics.v1mFallbackCalls++;
-                        metrics.v1mFallbackSuccess++;
-                      } else {
-                        metrics.v1mPrimaryFailures++;
-                        metrics.v1mFallbackCalls++;
-                        metrics.v1mFallbackFailures++;
-                        metrics.v1mFailOpen++;
-                      }
-                      if (shouldExtract) metrics.v1mAccepted++;
-                      else {
-                        metrics.v1mRejected++;
-                        metrics.aiCallsSaved++;
-                      }
-                      observed();
                     }
-                    if (!shouldExtract) {
-                      report.rejected++;
-                      return;
+                    if (!job) {
+                      throw new DiscoveryError("EXTRACTION_NO_POSTING", 502);
                     }
-                    metrics.aiCalls++;
+                    if (signal.aborted) return;
+                    await phase("filter");
+                    if (signal.aborted) return;
+                    jobs.push(job);
+                    metrics.jobsExtracted++;
+                    report.evaluated = (report.evaluated ?? 0) + 1;
                     observed();
-                    job = await timed("aiMs", () =>
-                      this.extractor!.extract(
-                        page.content,
-                        canonicalUrl(page.url),
-                        signal,
-                      ),
+                    if (!progress || (await progress.jobCandidate(job))) {
+                      report.accepted++;
+                      outcome = { status: "MATCHED" };
+                    } else {
+                      report.rejected++;
+                      outcome = {
+                        status: "REJECTED",
+                        errorCode: "FILTERED_OUT",
+                      };
+                    }
+                    observed();
+                  } catch (error) {
+                    if (signal.aborted) return;
+                    report.rejected++;
+                    const code = this.failure(
+                      report,
+                      error,
+                      stage,
+                      started,
+                      signal,
+                      diagnosticUrl,
                     );
+                    outcome = { status: "FAILED", errorCode: code };
+                    observed();
                   }
-                  if (!job) {
-                    throw new DiscoveryError("EXTRACTION_NO_POSTING", 502);
-                  }
-                  if (signal.aborted) return;
-                  await phase("filter");
-                  if (signal.aborted) return;
-                  jobs.push(job);
-                  metrics.jobsExtracted++;
-                  report.evaluated = (report.evaluated ?? 0) + 1;
-                  observed();
-                  if (!progress || (await progress.jobCandidate(job)))
-                    report.accepted++;
-                  else report.rejected++;
-                  observed();
-                } catch (error) {
-                  if (signal.aborted) return;
-                  report.rejected++;
-                  this.failure(
-                    report,
-                    error,
-                    stage,
-                    started,
-                    signal,
+                } finally {
+                  emitCandidate(
                     diagnosticUrl,
+                    outcome?.status ??
+                      (signal.aborted ? "TIMED_OUT" : "FAILED"),
+                    outcome?.errorCode,
+                    stage,
                   );
-                  observed();
                 }
               }),
             );
           }
+          // Cancellation may leave URLs in the shared queue without ever
+          // entering the per-URL handler/finally block. Mark allowlisted queue
+          // entries as timed out; a later wave can overwrite this diagnostic
+          // with the eventual terminal outcome if processing resumes.
+          if (signal.aborted)
+            for (const url of queue)
+              if (this.validator.searchCandidate(url))
+                emitCandidate(url, "TIMED_OUT", undefined, "validate");
         } catch (error) {
           if (!signal.aborted)
             this.failure(report, error, "search", searchStarted, signal);

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/api-client";
 import { useAuthStore } from "@/stores/useAuthStore";
@@ -43,7 +43,7 @@ interface ResumeProposal {
 }
 export function ResumeStudio() {
   const { user, isAuthenticated, isProfileComplete } = useAuthStore();
-  const { owner, draft, initialize, update } = useResumeDraftStore();
+  const { draft, initialize, update } = useResumeDraftStore();
   const [busy, setBusy] = useState(false);
   const [fetching, setFetching] = useState(isAuthenticated);
   const [busyLabel, setBusyLabel] = useState("");
@@ -70,6 +70,8 @@ export function ResumeStudio() {
     new URLSearchParams(window.location.search).get("preview") === "design";
   const currentOwner =
     isAuthenticated && user ? user.id : preview ? "demo" : "guest";
+  const ownerName = user ? `${user.firstName} ${user.lastName}` : "";
+  const ownerEmail = user?.email;
   useEffect(() => {
     setTargetJob(null);
     if (!jobId || jobId.startsWith("demo-")) return;
@@ -89,30 +91,36 @@ export function ResumeStudio() {
       alive = false;
     };
   }, [jobId]);
-  function restore(resume: SavedResume) {
-    setMode("tailored");
-    setTailoredDraft(null);
-    setResumeId(resume.id);
-    setJobId(resume.jobId);
-    update({
-      name: resume.content.name ?? "",
-      email: resume.content.email ?? "",
-      title: resume.content.title ?? "",
-      summary: resume.content.summary ?? "",
-      skills: (resume.content.skills_to_emphasize ?? []).join(", "),
-      projects: (resume.content.highlights ?? []).join("\n"),
-    });
-  }
-  function showContent(content: SavedResume["content"]) {
-    update({
-      name: content.name ?? "",
-      email: content.email ?? "",
-      title: content.title ?? "",
-      summary: content.summary ?? "",
-      skills: (content.skills_to_emphasize ?? []).join(", "),
-      projects: (content.highlights ?? []).join("\n"),
-    });
-  }
+  const restore = useCallback(
+    (resume: SavedResume) => {
+      setMode("tailored");
+      setTailoredDraft(null);
+      setResumeId(resume.id);
+      setJobId(resume.jobId);
+      update({
+        name: resume.content.name ?? "",
+        email: resume.content.email ?? "",
+        title: resume.content.title ?? "",
+        summary: resume.content.summary ?? "",
+        skills: (resume.content.skills_to_emphasize ?? []).join(", "),
+        projects: (resume.content.highlights ?? []).join("\n"),
+      });
+    },
+    [update],
+  );
+  const showContent = useCallback(
+    (content: SavedResume["content"]) => {
+      update({
+        name: content.name ?? "",
+        email: content.email ?? "",
+        title: content.title ?? "",
+        summary: content.summary ?? "",
+        skills: (content.skills_to_emphasize ?? []).join(", "),
+        projects: (content.highlights ?? []).join("\n"),
+      });
+    },
+    [update],
+  );
   function edit(values: Partial<ResumeDraft>) {
     update(values);
     if (mode === "base") setBaseDirty(true);
@@ -129,11 +137,7 @@ export function ResumeStudio() {
     const requestedJob =
       new URLSearchParams(window.location.search).get("job") ?? "";
     setJobId(requestedJob);
-    initialize(
-      currentOwner,
-      user ? user.firstName + " " + user.lastName : "",
-      user?.email,
-    );
+    initialize(currentOwner, ownerName, ownerEmail);
     if (!isAuthenticated) {
       setFetching(false);
       setBusy(false);
@@ -165,7 +169,15 @@ export function ResumeStudio() {
     return () => {
       alive = false;
     };
-  }, [currentOwner, initialize]);
+  }, [
+    currentOwner,
+    initialize,
+    isAuthenticated,
+    ownerEmail,
+    ownerName,
+    restore,
+    showContent,
+  ]);
   useEffect(() => {
     setProposals([]);
     setSelectedProposalId("");
@@ -187,7 +199,7 @@ export function ResumeStudio() {
     return () => {
       alive = false;
     };
-  }, [jobId, currentOwner]);
+  }, [jobId, currentOwner, isAuthenticated]);
   function draftPayload() {
     return {
       summary: draft.summary,

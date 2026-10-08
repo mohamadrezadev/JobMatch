@@ -1,5 +1,6 @@
 import {
   ArgumentsHost,
+  BadRequestException,
   Body,
   Catch,
   Controller,
@@ -12,6 +13,7 @@ import {
   Param,
   ParseUUIDPipe,
   Optional,
+  Query,
 } from "@nestjs/common";
 import {
   ApiBearerAuth,
@@ -26,6 +28,7 @@ import { Response } from "express";
 import { JwtAuthGuard } from "../../../common/guards/jwt-auth.guard";
 import { CurrentUser } from "../../../common/decorators/current-user.decorator";
 import { JobDiscoveryService } from "../application/job-discovery.service";
+import { CandidateStatus } from "../application/discovery.ports";
 import { DiscoveryError } from "../domain/discovery";
 import { randomUUID } from "crypto";
 import {
@@ -109,6 +112,42 @@ export class JobDiscoveryController {
     @Param("id", new ParseUUIDPipe()) id: string,
   ) {
     return { success: true, data: await this.discovery.latest(user.sub, id) };
+  }
+  @Get("runs/:id/candidates")
+  @ApiOperation({
+    summary: "Paginated candidate URL lifecycle for an owned discovery run",
+  })
+  async candidates(
+    @CurrentUser() user: { sub: string },
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Query("status") status?: string,
+    @Query("cursor") cursor?: string,
+    @Query("limit") limit?: string,
+  ) {
+    const allowedStatuses: CandidateStatus[] = [
+      "DISCOVERED",
+      "REJECTED",
+      "FAILED",
+      "TIMED_OUT",
+      "MATCHED",
+    ];
+    const statusFilter = allowedStatuses.includes(status as CandidateStatus)
+      ? (status as CandidateStatus)
+      : undefined;
+    const parsedLimit = limit && limit.trim() ? Number(limit) : undefined;
+    if (
+      parsedLimit !== undefined &&
+      (!Number.isFinite(parsedLimit) || !Number.isInteger(parsedLimit))
+    )
+      throw new BadRequestException("limit must be an integer");
+    return {
+      success: true,
+      data: await this.discovery.listCandidates(user.sub, id, {
+        status: statusFilter,
+        cursor,
+        limit: parsedLimit,
+      }),
+    };
   }
   @Post("search")
   @HttpCode(200)

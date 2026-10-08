@@ -8,7 +8,7 @@ export function openRole(text: string): string | undefined {
     )
   )
     return;
-  let title = text
+  const title = text
     .replace(
       /^(?:لطفا\s+)?\d+\s*(?:تا\s*)?(?:شغل|کار|آگهی|نتیجه|موقعیت)\s+/,
       "",

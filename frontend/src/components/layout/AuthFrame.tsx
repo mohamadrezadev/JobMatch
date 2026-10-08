@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { Icon } from "@/components/pathly/Icon";
+import { PwaInstallButton } from "@/components/pwa/PwaControls";
 import { useAuthReady } from "@/lib/use-auth-ready";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useThemeStore } from "@/stores/useThemeStore";
@@ -93,13 +94,16 @@ export function AuthFrame({ children }: { children: React.ReactNode }) {
             >
               <Icon name="arrow-right" /> بازگشت به صفحه اصلی
             </Link>
-            <button
-              aria-label="تغییر تم سایت"
-              onClick={toggle}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 dark:border-dark-border"
-            >
-              <Icon name={theme === "dark" ? "sun" : "moon"} />
-            </button>
+            <div className="flex items-center gap-2">
+              <PwaInstallButton />
+              <button
+                aria-label="تغییر تم سایت"
+                onClick={toggle}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 dark:border-dark-border"
+              >
+                <Icon name={theme === "dark" ? "sun" : "moon"} />
+              </button>
+            </div>
           </div>
           <div className="mx-auto w-full max-w-sm py-4 sm:py-8">
             <BrandLogo variant="wordmark" className="mb-8 w-40 lg:hidden" />

@@ -90,7 +90,12 @@ export class UsersService {
           createdAt: true,
         },
       });
-      const { firstName, lastName, skills, ...fields } = dto;
+      const {
+        firstName: _firstName,
+        lastName: _lastName,
+        skills,
+        ...fields
+      } = dto;
       const data = {
         ...fields,
         workType:

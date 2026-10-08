@@ -18,16 +18,26 @@ import { RunActivity } from "./RunActivity";
 import { ChatMessage } from "./ChatMessage";
 import { discoveryCountHint } from "@/lib/discovery-progress";
 import { runFinished } from "@/types/chat-run";
-import Link from "next/link";
 import { useChatWait, chatRequestHint } from "@/lib/chat-availability";
-import { chatSearchExample, chatSearchSuggestions } from "@/lib/chat-suggestions";
+import {
+  chatSearchExample,
+  chatSearchSuggestions,
+} from "@/lib/chat-suggestions";
 
 const workLabels = { Remote: "دورکار", Hybrid: "هیبرید", OnSite: "حضوری" };
-export default function ChatExperience() {
+export default function ChatExperience({
+  fullHeight = false,
+}: {
+  fullHeight?: boolean;
+}) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  return isAuthenticated ? <AuthenticatedChat /> : <GuestChat />;
+  return isAuthenticated ? (
+    <AuthenticatedChat fullHeight={fullHeight} />
+  ) : (
+    <GuestChat fullHeight={fullHeight} />
+  );
 }
-function AuthenticatedChat() {
+function AuthenticatedChat({ fullHeight }: { fullHeight: boolean }) {
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState("");
   const [claimRetry, setClaimRetry] = useState(0);
@@ -40,7 +50,7 @@ function AuthenticatedChat() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    void runs.loadAvailability();
+    void useChatRunStore.getState().loadAvailability();
     const refresh = () => void useChatRunStore.getState().loadAvailability();
     window.addEventListener("focus", refresh);
     const timer = setInterval(refresh, 5000);
@@ -148,7 +158,13 @@ function AuthenticatedChat() {
   const context = chat.active?.context.searchContext;
   const ready = Boolean(context?.targetRoles.length);
   return (
-    <section className="glass-card chat-workspace flex h-[calc(100dvh-180px)] min-h-[420px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-light-surface shadow-xl shadow-slate-900/5 dark:border-dark-border dark:bg-dark-surface md:h-[calc(100dvh-136px)] md:min-h-[480px]">
+    <section
+      className={
+        fullHeight
+          ? "flex h-full min-h-0 flex-col overflow-hidden bg-light-surface dark:bg-dark-surface"
+          : "glass-card chat-workspace flex h-[calc(100dvh-180px)] min-h-[420px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-light-surface shadow-xl shadow-slate-900/5 dark:border-dark-border dark:bg-dark-surface md:h-[calc(100dvh-136px)] md:min-h-[480px]"
+      }
+    >
       <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/50">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-500 to-indigo-600 text-white shadow-md">

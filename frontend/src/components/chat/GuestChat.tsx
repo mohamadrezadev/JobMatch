@@ -25,7 +25,10 @@ import {
   type ChatAvailability,
 } from "@/lib/chat-availability";
 import type { DiscoveryIssue } from "@/types/discovery";
-import { chatSearchExample, chatSearchSuggestions } from "@/lib/chat-suggestions";
+import {
+  chatSearchExample,
+  chatSearchSuggestions,
+} from "@/lib/chat-suggestions";
 import {
   guestChatClient,
   guestContinuationKey,
@@ -33,7 +36,7 @@ import {
   type GuestChatState,
 } from "@/lib/guest-chat-client";
 
-export function GuestChat() {
+export function GuestChat({ fullHeight = false }: { fullHeight?: boolean }) {
   const [chat, setChat] = useState<GuestChatState | null>(null);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
@@ -241,7 +244,11 @@ export function GuestChat() {
   return (
     <section
       aria-labelledby="guest-chat-title"
-      className="glass-card flex min-h-[520px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-light-surface shadow-2xl shadow-brand-500/5 dark:border-dark-border dark:bg-dark-surface"
+      className={
+        fullHeight
+          ? "flex h-full min-h-0 flex-col overflow-hidden bg-light-surface dark:bg-dark-surface"
+          : "glass-card flex min-h-[520px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-light-surface shadow-2xl shadow-brand-500/5 dark:border-dark-border dark:bg-dark-surface"
+      }
     >
       <header className="flex items-center justify-between gap-3 border-b border-slate-200 p-5 dark:border-dark-border">
         <div className="flex items-center gap-3">
@@ -261,215 +268,225 @@ export function GuestChat() {
         </span>
       </header>
       <div
-        role="log"
-        aria-label="پیام‌های گفتگو"
-        aria-live="polite"
-        className="max-h-[400px] min-h-[240px] flex-1 space-y-4 overflow-y-auto p-5 text-sm leading-7"
+        className={fullHeight ? "min-h-0 flex-1 overflow-y-auto" : undefined}
       >
-        <ChatMessage role="assistant">
-          <p className="font-bold">
-            سلام! دنبال چه تغییری در مسیر شغلی‌ات هستی؟
-          </p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            از نقش دلخواه، مهارت‌ها یا شرایط کارت بگو؛ با هم درخواست شغلی‌ات را
-            روشن می‌کنیم.
-          </p>
-        </ChatMessage>
-        {chat?.messages.map((message) => (
-          <ChatMessage
-            key={message.id}
-            role={message.role === "user" ? "user" : "assistant"}
-            content={message.content}
-          />
-        ))}
-        {loading && (
-          <LoadingState
-            title="در حال اتصال به گفتگو…"
-            description="گفتگو و پیام‌های قبلی‌ات را آماده می‌کنیم."
-            compact
-          />
-        )}
-        {pending && <ChatMessage role="user" content={submitted} pending />}
-        {chat?.discovery && (
-          <section aria-label="نتایج جستجوی مهمان" className="space-y-3">
-            <SourceProblems sources={chat.discovery.sources} />
-            <h3 className="text-sm font-bold">فرصت‌های پیدا شده</h3>
-            {chat.discovery.error && (
-              <p role="alert" className="text-xs text-amber-600">
-                {chat.discovery.issue?.message ??
-                  "منابع جستجو پاسخ قابل استفاده ندادند؛ شرایطت حفظ شده است."}
-              </p>
-            )}
-            {chat.discovery.sources.length > 0 && (
-              <p className="text-xs text-slate-500">
-                منابع بررسی‌شده:{" "}
-                {chat.discovery.sources
-                  .map((source) => source.source)
-                  .join(" · ")}
-              </p>
-            )}
-            {chat.discovery.jobs.map((job) => (
-              <article
-                key={job.sourceUrl}
-                className="space-y-2 rounded-xl border border-slate-200 p-3 text-xs dark:border-dark-border"
-              >
-                <h4 className="font-bold">{job.title}</h4>
-                <p>
-                  {job.company} · {job.location ?? "شهر اعلام نشده"} ·{" "}
-                  {job.workType
-                    ? { Remote: "دورکار", Hybrid: "هیبرید", OnSite: "حضوری" }[
-                        job.workType
-                      ]
-                    : "نوع حضور اعلام نشده"}
+        <div
+          role="log"
+          aria-label="پیام‌های گفتگو"
+          aria-live="polite"
+          className={
+            fullHeight
+              ? "space-y-4 p-5 text-sm leading-7"
+              : "max-h-[400px] min-h-[240px] flex-1 space-y-4 overflow-y-auto p-5 text-sm leading-7"
+          }
+        >
+          <ChatMessage role="assistant">
+            <p className="font-bold">
+              سلام! دنبال چه تغییری در مسیر شغلی‌ات هستی؟
+            </p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              از نقش دلخواه، مهارت‌ها یا شرایط کارت بگو؛ با هم درخواست شغلی‌ات
+              را روشن می‌کنیم.
+            </p>
+          </ChatMessage>
+          {chat?.messages.map((message) => (
+            <ChatMessage
+              key={message.id}
+              role={message.role === "user" ? "user" : "assistant"}
+              content={message.content}
+            />
+          ))}
+          {loading && (
+            <LoadingState
+              title="در حال اتصال به گفتگو…"
+              description="گفتگو و پیام‌های قبلی‌ات را آماده می‌کنیم."
+              compact
+            />
+          )}
+          {pending && <ChatMessage role="user" content={submitted} pending />}
+          {chat?.discovery && (
+            <section aria-label="نتایج جستجوی مهمان" className="space-y-3">
+              <SourceProblems sources={chat.discovery.sources} />
+              <h3 className="text-sm font-bold">فرصت‌های پیدا شده</h3>
+              {chat.discovery.error && (
+                <p role="alert" className="text-xs text-amber-600">
+                  {chat.discovery.issue?.message ??
+                    "منابع جستجو پاسخ قابل استفاده ندادند؛ شرایطت حفظ شده است."}
                 </p>
-                <p>
-                  {job.salaryMin != null || job.salaryMax != null
-                    ? `${[job.salaryMin, job.salaryMax]
-                        .filter((value) => value != null)
-                        .map((value) => value!.toLocaleString("fa-IR"))
-                        .join(
-                          " تا ",
-                        )} ${job.currency === "TOMAN" ? "تومان" : "واحد اعلام نشده"}${job.salaryPeriod === "MONTHLY" ? " در ماه" : ""}`
-                    : "حقوق اعلام نشده"}
+              )}
+              {chat.discovery.sources.length > 0 && (
+                <p className="text-xs text-slate-500">
+                  منابع بررسی‌شده:{" "}
+                  {chat.discovery.sources
+                    .map((source) => source.source)
+                    .join(" · ")}
                 </p>
-                {job.warnings.map((warning) => (
-                  <p key={warning} className="text-amber-600">
-                    {warning}
-                  </p>
-                ))}
-                <a
-                  href={job.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-brand-500"
+              )}
+              {chat.discovery.jobs.map((job) => (
+                <article
+                  key={job.sourceUrl}
+                  className="space-y-2 rounded-xl border border-slate-200 p-3 text-xs dark:border-dark-border"
                 >
-                  مشاهده آگهی اصلی
-                </a>
-              </article>
+                  <h4 className="font-bold">{job.title}</h4>
+                  <p>
+                    {job.company} · {job.location ?? "شهر اعلام نشده"} ·{" "}
+                    {job.workType
+                      ? { Remote: "دورکار", Hybrid: "هیبرید", OnSite: "حضوری" }[
+                          job.workType
+                        ]
+                      : "نوع حضور اعلام نشده"}
+                  </p>
+                  <p>
+                    {job.salaryMin != null || job.salaryMax != null
+                      ? `${[job.salaryMin, job.salaryMax]
+                          .filter((value) => value != null)
+                          .map((value) => value!.toLocaleString("fa-IR"))
+                          .join(
+                            " تا ",
+                          )} ${job.currency === "TOMAN" ? "تومان" : "واحد اعلام نشده"}${job.salaryPeriod === "MONTHLY" ? " در ماه" : ""}`
+                      : "حقوق اعلام نشده"}
+                  </p>
+                  {job.warnings.map((warning) => (
+                    <p key={warning} className="text-amber-600">
+                      {warning}
+                    </p>
+                  ))}
+                  <a
+                    href={job.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand-500"
+                  >
+                    مشاهده آگهی اصلی
+                  </a>
+                </article>
+              ))}
+            </section>
+          )}
+          <div ref={end} />
+        </div>
+        {(pending || events.length > 0) && (
+          <section
+            aria-label="فعالیت اجرای درخواست"
+            className="ml-5 mr-auto my-3 max-h-48 w-[85%] shrink-0 space-y-2 overflow-y-auto rounded-2xl border border-brand-500/15 bg-brand-500/5 p-4 text-xs"
+          >
+            <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+              فعالیت دستیار کارمچ
+            </p>
+            <TaskProgress
+              events={events}
+              finished={!pending}
+              sources={
+                pending ? sources : (chat?.discovery?.sources ?? sources)
+              }
+            />
+            <p
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-2 font-semibold text-brand-600 dark:text-brand-200"
+            >
+              {pending && <LoadingSpinner className="h-4 w-4" />}
+              {pending
+                ? progressLabel(activity)
+                : "بررسی درخواست پایان یافت؛ جزئیات منابع بالا آمده است."}
+            </p>
+            {targetLabel && activity?.type !== "agent.started" && (
+              <p>{targetLabel}</p>
+            )}
+            {sources.map((source) => (
+              <p
+                key={source.source}
+                className="flex flex-wrap items-center gap-1.5"
+              >
+                {!source.finished && (
+                  <LoadingSpinner className="h-3 w-3 text-brand-500" />
+                )}
+                {sourceNames[source.source] ?? source.source}:{" "}
+                {source.finished
+                  ? source.failed
+                    ? "بررسی کامل نشد"
+                    : "بررسی تمام شد"
+                  : (stageLabels[source.stage ?? ""] ??
+                    "در حال جستجوی لینک آگهی‌ها")}
+              </p>
             ))}
+            {pending && <SourceProblems sources={sources} />}
           </section>
         )}
-        <div ref={end} />
-      </div>
-      {(pending || events.length > 0) && (
-        <section
-          aria-label="فعالیت اجرای درخواست"
-          className="ml-5 mr-auto my-3 max-h-48 w-[85%] shrink-0 space-y-2 overflow-y-auto rounded-2xl border border-brand-500/15 bg-brand-500/5 p-4 text-xs"
-        >
-          <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
-            فعالیت دستیار کارمچ
-          </p>
-          <TaskProgress
-            events={events}
-            finished={!pending}
-            sources={pending ? sources : (chat?.discovery?.sources ?? sources)}
-          />
-          <p
-            role="status"
-            aria-live="polite"
-            className="flex items-center gap-2 font-semibold text-brand-600 dark:text-brand-200"
+        {error && (
+          <div
+            role="alert"
+            className="mx-5 mb-3 rounded-xl bg-rose-500/10 p-3 text-xs text-rose-500"
           >
-            {pending && <LoadingSpinner className="h-4 w-4" />}
-            {pending
-              ? progressLabel(activity)
-              : "بررسی درخواست پایان یافت؛ جزئیات منابع بالا آمده است."}
-          </p>
-          {targetLabel && activity?.type !== "agent.started" && (
-            <p>{targetLabel}</p>
-          )}
-          {sources.map((source) => (
-            <p
-              key={source.source}
-              className="flex flex-wrap items-center gap-1.5"
-            >
-              {!source.finished && (
-                <LoadingSpinner className="h-3 w-3 text-brand-500" />
-              )}
-              {sourceNames[source.source] ?? source.source}:{" "}
-              {source.finished
-                ? source.failed
-                  ? "بررسی کامل نشد"
-                  : "بررسی تمام شد"
-                : (stageLabels[source.stage ?? ""] ??
-                  "در حال جستجوی لینک آگهی‌ها")}
-            </p>
-          ))}
-          {pending && <SourceProblems sources={sources} />}
-        </section>
-      )}
-      {error && (
-        <div
-          role="alert"
-          className="mx-5 mb-3 rounded-xl bg-rose-500/10 p-3 text-xs text-rose-500"
-        >
-          {error}
-          {!chat && (
-            <button onClick={() => void restore()} className="mr-2 underline">
-              تلاش دوباره
-            </button>
-          )}
-        </div>
-      )}
-      {chat &&
-        chat.context.searchContext.targetRoles.length > 0 &&
-        (!chat.discovery || chat.discovery.error) &&
-        !chat.authRequired && (
-          <button
-            type="button"
-            disabled={pending || loading || wait.seconds > 0}
-            onClick={() => void sendMessage("دوباره جستجو کن")}
-            className="mx-5 mb-3 rounded-xl bg-brand-500 px-4 py-3 text-xs font-bold text-white disabled:opacity-40"
-          >
-            {chat.discovery?.error
-              ? "تلاش دوباره برای جستجو"
-              : "جستجوی فرصت‌های شغلی"}
-          </button>
-        )}
-      {!chat?.messages.length && (
-        <div className="flex flex-wrap gap-2 px-5 pb-4">
-          {chatSearchSuggestions.map((prompt) => (
-            <button
-              key={prompt}
-              onClick={() => {
-                saveDraft(prompt);
-                document.getElementById("guest-chat-input")?.focus();
-              }}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-[10px] text-slate-500 transition-colors hover:border-brand-500 hover:text-brand-500 dark:border-dark-border dark:text-slate-400"
-            >
-              {prompt}
-            </button>
-          ))}
-        </div>
-      )}
-      {chat?.authRequired && (
-        <div
-          role="status"
-          className="mx-5 mb-4 rounded-2xl border border-brand-500/20 bg-brand-500/5 p-4"
-        >
-          <h3 className="text-sm font-bold">گفتگو را از همین‌جا ادامه بده</h3>
-          <p className="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
-            پیام‌های مهمان تمام شده‌اند. ثبت‌نام کن یا وارد حساب شو؛ گفتگو و متن
-            نوشته‌شده‌ات حفظ می‌شوند.
-          </p>
-          <div className="mt-3 flex gap-3">
-            <Link
-              href="/register"
-              className="rounded-xl bg-brand-500 px-4 py-2 text-xs font-bold text-white"
-            >
-              ثبت‌نام و ادامه گفتگو
-            </Link>
-            <Link
-              href="/login"
-              className="rounded-xl border border-brand-500/30 px-4 py-2 text-xs font-bold text-brand-500"
-            >
-              ورود به حساب
-            </Link>
+            {error}
+            {!chat && (
+              <button onClick={() => void restore()} className="mr-2 underline">
+                تلاش دوباره
+              </button>
+            )}
           </div>
-        </div>
-      )}
+        )}
+        {chat &&
+          chat.context.searchContext.targetRoles.length > 0 &&
+          (!chat.discovery || chat.discovery.error) &&
+          !chat.authRequired && (
+            <button
+              type="button"
+              disabled={pending || loading || wait.seconds > 0}
+              onClick={() => void sendMessage("دوباره جستجو کن")}
+              className="mx-5 mb-3 rounded-xl bg-brand-500 px-4 py-3 text-xs font-bold text-white disabled:opacity-40"
+            >
+              {chat.discovery?.error
+                ? "تلاش دوباره برای جستجو"
+                : "جستجوی فرصت‌های شغلی"}
+            </button>
+          )}
+        {!chat?.messages.length && (
+          <div className="flex flex-wrap gap-2 px-5 pb-4">
+            {chatSearchSuggestions.map((prompt) => (
+              <button
+                key={prompt}
+                onClick={() => {
+                  saveDraft(prompt);
+                  document.getElementById("guest-chat-input")?.focus();
+                }}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-[10px] text-slate-500 transition-colors hover:border-brand-500 hover:text-brand-500 dark:border-dark-border dark:text-slate-400"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+        )}
+        {chat?.authRequired && (
+          <div
+            role="status"
+            className="mx-5 mb-4 rounded-2xl border border-brand-500/20 bg-brand-500/5 p-4"
+          >
+            <h3 className="text-sm font-bold">گفتگو را از همین‌جا ادامه بده</h3>
+            <p className="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
+              پیام‌های مهمان تمام شده‌اند. ثبت‌نام کن یا وارد حساب شو؛ گفتگو و
+              متن نوشته‌شده‌ات حفظ می‌شوند.
+            </p>
+            <div className="mt-3 flex gap-3">
+              <Link
+                href="/register"
+                className="rounded-xl bg-brand-500 px-4 py-2 text-xs font-bold text-white"
+              >
+                ثبت‌نام و ادامه گفتگو
+              </Link>
+              <Link
+                href="/login"
+                className="rounded-xl border border-brand-500/30 px-4 py-2 text-xs font-bold text-brand-500"
+              >
+                ورود به حساب
+              </Link>
+            </div>
+          </div>
+        )}
+      </div>
       <form
         onSubmit={submit}
-        className="border-t border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/30"
+        className="shrink-0 border-t border-slate-200 bg-slate-50/50 p-4 dark:border-dark-border dark:bg-dark-card/30"
       >
         <p className="mb-2 text-[10px] leading-5 text-slate-500 dark:text-slate-400">
           {discoveryCountHint}

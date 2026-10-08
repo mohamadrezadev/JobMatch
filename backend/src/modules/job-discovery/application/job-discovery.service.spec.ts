@@ -9,6 +9,8 @@ describe("Discovery use case", () => {
   beforeEach(() => {
     repository = {
       saveCandidate: jest.fn(),
+      recordCandidate: jest.fn(),
+      listCandidates: jest.fn(),
       context: jest.fn(),
       begin: jest.fn(),
       complete: jest.fn(),
@@ -52,14 +54,29 @@ describe("Discovery use case", () => {
     expect(provider.discover).not.toHaveBeenCalled();
   });
   it("uses the current context for legacy progress callbacks without a snapshot", async () => {
-    repository.begin.mockResolvedValue({ id: "run", status: "COMPLETED", cached: true, jobs: [], sources: [] });
+    repository.begin.mockResolvedValue({
+      id: "run",
+      status: "COMPLETED",
+      cached: true,
+      jobs: [],
+      sources: [],
+    });
     const publish = jest.fn().mockResolvedValue(undefined);
-    await expect(service.search("owner", "conversation", { publish })).resolves.toMatchObject({ cached: true });
-    expect(repository.begin).toHaveBeenCalledWith("owner", "conversation", 2, { targetRoles: ["Backend Developer"] });
+    await expect(
+      service.search("owner", "conversation", { publish }),
+    ).resolves.toMatchObject({ cached: true });
+    expect(repository.begin).toHaveBeenCalledWith("owner", "conversation", 2, {
+      targetRoles: ["Backend Developer"],
+    });
     expect(publish).toHaveBeenCalledWith("search.cached", expect.any(Object));
   });
   it("still rejects an explicitly stale run snapshot before starting discovery", async () => {
-    await expect(service.search("owner", "conversation", { publish: jest.fn(), contextVersion: 1 })).rejects.toMatchObject({ code: "CONTEXT_CHANGED", status: 409 });
+    await expect(
+      service.search("owner", "conversation", {
+        publish: jest.fn(),
+        contextVersion: 1,
+      }),
+    ).rejects.toMatchObject({ code: "CONTEXT_CHANGED", status: 409 });
     expect(repository.begin).not.toHaveBeenCalled();
     expect(provider.discover).not.toHaveBeenCalled();
   });

@@ -4,6 +4,7 @@ import {
   equivalentOccupationTitles,
   matchesOccupationTitle,
 } from "../../jobs/domain/occupation-title";
+import { locationsMatch } from "./location-resolver";
 
 export const INITIAL_SOURCES = [
   "jobvision.ir",
@@ -198,10 +199,8 @@ export function filterAndRank(
         intent.locations?.length &&
         !(job.workType === "Remote" && !job.location) &&
         (!job.location ||
-          !intent.locations.some(
-            (location) =>
-              has(job.location!, location) ||
-              (location === "Tehran" && has(job.location!, "تهران")),
+          !intent.locations.some((location) =>
+            locationsMatch(location, job.location!, has),
           ))
       )
         return false;

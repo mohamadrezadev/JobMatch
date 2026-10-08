@@ -276,10 +276,29 @@ model JobDiscoveryRun {
   completedAt    DateTime?
   errorCode      String?
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  candidates     JobDiscoveryCandidate[]
 
   @@unique([conversationId, contextVersion])
   @@index([userId, startedAt])
   @@map("job_discovery_runs")
+}
+
+model JobDiscoveryCandidate {
+  id            String    @id @default(uuid())
+  runId         String
+  source        String
+  canonicalUrl  String
+  status        String
+  errorCode     String?
+  stage         String?
+  discoveredAt  DateTime  @default(now())
+  lastAttemptAt DateTime  @default(now())
+  retryCount    Int       @default(0)
+  run           JobDiscoveryRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, canonicalUrl])
+  @@index([runId, status])
+  @@map("job_discovery_candidates")
 }
 
 model ChatRun {

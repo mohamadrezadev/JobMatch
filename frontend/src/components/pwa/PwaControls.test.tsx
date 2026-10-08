@@ -1,7 +1,18 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { PwaControls } from "./PwaControls";
+import { PwaControls, PwaInstallButton } from "./PwaControls";
+import { usePwaInstallStore } from "@/stores/usePwaInstallStore";
+
+function renderPwaControls() {
+  return render(
+    <>
+      <PwaInstallButton />
+      <PwaControls />
+    </>,
+  );
+}
 
 beforeEach(() => {
+  usePwaInstallStore.setState({ installed: true, open: false });
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: jest.fn(() => ({
@@ -31,7 +42,7 @@ beforeEach(() => {
 });
 
 test("provides usable manual guidance when a native installation event is absent", () => {
-  render(<PwaControls />);
+  renderPwaControls();
   fireEvent.click(screen.getByRole("button", { name: "نصب کارمچ" }));
   expect(
     within(screen.getByRole("dialog")).getByText(/در منوی مرورگر/),
@@ -46,7 +57,7 @@ test("shows Safari home-screen steps to iPhone users", () => {
     configurable: true,
     value: "iPhone",
   });
-  render(<PwaControls />);
+  renderPwaControls();
   fireEvent.click(screen.getByRole("button", { name: "نصب کارمچ" }));
   expect(screen.getByText(/این سایت را در Safari/)).toBeVisible();
   expect(screen.getByText(/Add to Home Screen/)).toBeVisible();
@@ -57,7 +68,7 @@ test("hides installation in an installed window", () => {
     configurable: true,
     value: true,
   });
-  render(<PwaControls />);
+  renderPwaControls();
   expect(
     screen.queryByRole("button", { name: "نصب کارمچ" }),
   ).not.toBeInTheDocument();
@@ -66,7 +77,7 @@ test("hides installation in an installed window", () => {
 test.each(["dismissed", "failure"])(
   "handles native install %s without replaying a consumed event",
   async (outcome) => {
-    render(<PwaControls />);
+    renderPwaControls();
     const event = new Event("beforeinstallprompt", { cancelable: true });
     const prompt = jest.fn(
       outcome === "failure"
@@ -94,7 +105,7 @@ test.each(["dismissed", "failure"])(
 );
 
 test("reports lost connectivity and removes the notice on reconnect", () => {
-  render(<PwaControls />);
+  renderPwaControls();
   Object.defineProperty(navigator, "onLine", {
     configurable: true,
     value: false,

@@ -138,6 +138,8 @@ it.each([false, true])(
         latest: jest.fn(),
         fail: jest.fn(),
         saveCandidate: jest.fn(),
+        recordCandidate: jest.fn(),
+        listCandidates: jest.fn(),
       },
       provider,
       1000,

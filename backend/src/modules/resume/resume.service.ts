@@ -314,8 +314,9 @@ export class ResumeService {
       baseVersion?: number;
       proposalId?: string;
     };
-    const { provenance, sourceSnapshot, baseVersion, proposalId, ...claims } =
-      data;
+    const { provenance, sourceSnapshot, ...claims } = data;
+    delete claims.baseVersion;
+    delete claims.proposalId;
     const registered =
       provenance === "user-authored"
         ? {

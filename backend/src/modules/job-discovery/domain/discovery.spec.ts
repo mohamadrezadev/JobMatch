@@ -34,6 +34,38 @@ describe("Iranian job rules", () => {
     ).toEqual([matching]);
     expect(intent.targetRoles).toEqual(["بکند دات نت"]);
   });
+  it("matches a job location across scripts via the location resolver", () => {
+    const base = normalizeJob(html(), url)!;
+    const isfahanJob = { ...base, location: "اصفهان" };
+    expect(
+      filterAndRank([isfahanJob], {
+        targetRoles: ["Backend Developer"],
+        locations: ["Isfahan"],
+      }),
+    ).toEqual([isfahanJob]);
+    expect(
+      filterAndRank([isfahanJob], {
+        targetRoles: ["Backend Developer"],
+        locations: ["Shiraz"],
+      }),
+    ).toEqual([]);
+  });
+  it("falls back to substring matching for a city outside the resolver's catalog", () => {
+    const base = normalizeJob(html(), url)!;
+    const uncatalogued = { ...base, location: "Smalltown Industrial Zone" };
+    expect(
+      filterAndRank([uncatalogued], {
+        targetRoles: ["Backend Developer"],
+        locations: ["Smalltown"],
+      }),
+    ).toEqual([uncatalogued]);
+    expect(
+      filterAndRank([{ ...base, location: "Somewhere Else" }], {
+        targetRoles: ["Backend Developer"],
+        locations: ["Smalltown"],
+      }),
+    ).toEqual([]);
+  });
   it("plans original-first distinct title rounds and preserves unknown occupations", () => {
     const intent = {
       targetRoles: ["کارشناس منابع انسانی"],

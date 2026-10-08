@@ -7,7 +7,11 @@ import {
   canonicalUrl,
   normalizeText,
 } from "../domain/discovery";
-import { DiscoveryRepository, JobDiscoveryProvider } from "./discovery.ports";
+import {
+  DiscoveryRepository,
+  JobDiscoveryProvider,
+  CandidateListOptions,
+} from "./discovery.ports";
 import { AgentSearchService } from "./agent-search.service";
 import { AgentPlannerService } from "./agent-planner.service";
 import { publicSource } from "../domain/discovery-issue";
@@ -39,6 +43,13 @@ export class JobDiscoveryService {
   async latest(userId: string, conversationId: string) {
     const result = await this.repository.latest(userId, conversationId);
     return result ? withoutMetrics(result) : null;
+  }
+  async listCandidates(
+    userId: string,
+    runId: string,
+    options?: CandidateListOptions,
+  ) {
+    return this.repository.listCandidates(userId, runId, options);
   }
   async search(userId: string, conversationId: string, live?: LiveDiscovery) {
     const { intent, version, rankingExperienceLevel } =
@@ -75,6 +86,10 @@ export class JobDiscoveryService {
     const identities = new Set<string>();
     const urls = new Set<string>();
     let acceptance = Promise.resolve();
+    // Chained, never awaited by the discovery loop: guarantees writes for the
+    // same run land in emission order instead of racing each other, while
+    // still never blocking the hot per-URL loop that emits them.
+    let candidateQueue = Promise.resolve();
     const accept = (job: DiscoveredJob): Promise<boolean> => {
       let accepted = false;
       const task = acceptance.then(async () => {
@@ -114,6 +129,13 @@ export class JobDiscoveryService {
                   publicSources([report])[0],
                 ),
               jobCandidate: accept,
+              candidateObserved: (event) => {
+                candidateQueue = candidateQueue.then(() =>
+                  this.repository
+                    .recordCandidate(run.id, event)
+                    .catch(() => undefined),
+                );
+              },
             }
           : undefined,
         live?.publish,
@@ -124,6 +146,10 @@ export class JobDiscoveryService {
       // A timed-out batch can leave a candidate save in flight. Drain it before
       // publishing the terminal state so accepted events cannot arrive afterward.
       await acceptance;
+      // Best-effort diagnostic writes; drain them too so a run's candidates are
+      // fully recorded before the run is reported complete, without ever having
+      // blocked the discovery loop that emitted them.
+      await candidateQueue;
       const jobs = deduplicate(
         filterAndRank(result.jobs, intent, rankingExperienceLevel),
       );

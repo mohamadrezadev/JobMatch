@@ -41,6 +41,8 @@ beforeEach(() => {
     saveCandidate: jest
       .fn()
       .mockResolvedValue({ ...job, id: "job-id", warnings: [] }),
+    recordCandidate: jest.fn(),
+    listCandidates: jest.fn(),
   };
   provider = { discover: jest.fn() };
   service = new JobDiscoveryService(repository, provider);

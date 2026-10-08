@@ -187,12 +187,20 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
     ],
   );
   const selected = filtered.find((job) => job.id === selectedId) ?? filtered[0];
+  const selectedJobId = selected?.id;
+  const selectedIsDemo = selected?.demo;
   const match = selected ? matches[selected.id] : undefined;
   useEffect(() => {
     setFeedbackNotice("");
-    if (selected && !selected.demo && isAuthenticated && !loading && !error)
-      recordEvent("Job Viewed", selected.id);
-  }, [selected?.id, isAuthenticated, loading, error]);
+    if (
+      selectedJobId &&
+      !selectedIsDemo &&
+      isAuthenticated &&
+      !loading &&
+      !error
+    )
+      recordEvent("Job Viewed", selectedJobId);
+  }, [selectedJobId, selectedIsDemo, isAuthenticated, loading, error]);
   async function feedback(rating: "Interested" | "NotInterested") {
     if (!selected || selected.demo) return;
     setFeedbackBusy(true);
@@ -212,10 +220,10 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
   }
   useEffect(() => {
     if (
-      !selected ||
-      selected.demo ||
+      !selectedJobId ||
+      selectedIsDemo ||
       !isAuthenticated ||
-      matches[selected.id] ||
+      matches[selectedJobId] ||
       loading ||
       error
     ) {
@@ -223,7 +231,7 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
       return;
     }
     let alive = true;
-    const id = selected.id;
+    const id = selectedJobId;
     setMatchingId(id);
     apiClient
       .post<MatchResult | { success: boolean; data: MatchResult }>(
@@ -243,7 +251,7 @@ export function JobsView({ initialJobId }: { initialJobId?: string }) {
     return () => {
       alive = false;
     };
-  }, [selected?.id, isAuthenticated, matches, loading, error]);
+  }, [selectedJobId, selectedIsDemo, isAuthenticated, matches, loading, error]);
   const score = match
     ? typeof match.matchScore === "number"
       ? match.matchScore

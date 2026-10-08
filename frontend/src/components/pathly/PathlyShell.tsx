@@ -9,6 +9,7 @@ import { useThemeStore } from "@/stores/useThemeStore";
 import { Icon } from "./Icon";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { PageLoading } from "@/components/ui/LoadingState";
+import { PwaInstallButton } from "@/components/pwa/PwaControls";
 
 const links = [
   { href: "/chat", label: "دستیار هوشمند", mobile: "دستیار", icon: "comments" },
@@ -76,6 +77,7 @@ export function PathlyShell({ children }: { children: React.ReactNode }) {
       alive = false;
     };
   }, [ready, isAuthenticated, user?.id, pathname, router]);
+  const isChat = pathname === "/chat";
   const active = (href: string) => pathname.startsWith(href);
   const pageTitle =
     links.find((link) => active(link.href))?.label ?? "فضای کاری";
@@ -111,6 +113,7 @@ export function PathlyShell({ children }: { children: React.ReactNode }) {
           {pageTitle}
         </div>
         <div className="flex min-w-0 items-center gap-2">
+          <PwaInstallButton />
           <button
             type="button"
             aria-label="تغییر تم سایت"
@@ -182,17 +185,34 @@ export function PathlyShell({ children }: { children: React.ReactNode }) {
             </p>
           </div>
         </aside>
-        <main className="min-w-0 flex-1 p-4 pb-24 sm:p-6 md:pb-8 lg:p-8">
-          <div className="mx-auto max-w-[1440px]">
-            {ready ? (
+        <main
+          className={
+            isChat
+              ? "sticky top-[72px] flex h-[calc(100dvh-72px)] min-w-0 flex-1 flex-col overflow-hidden pb-24 md:pb-0"
+              : "min-w-0 flex-1 p-4 pb-24 sm:p-6 md:pb-8 lg:p-8"
+          }
+        >
+          {isChat ? (
+            ready ? (
               children
             ) : (
               <PageLoading
                 title="در حال آماده‌کردن فضای کاری…"
                 description="اطلاعات ورود و فضای شخصی‌ات را بررسی می‌کنیم."
               />
-            )}
-          </div>
+            )
+          ) : (
+            <div className="mx-auto max-w-[1440px]">
+              {ready ? (
+                children
+              ) : (
+                <PageLoading
+                  title="در حال آماده‌کردن فضای کاری…"
+                  description="اطلاعات ورود و فضای شخصی‌ات را بررسی می‌کنیم."
+                />
+              )}
+            </div>
+          )}
         </main>
       </div>
       <nav

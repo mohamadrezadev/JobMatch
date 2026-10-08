@@ -6,6 +6,7 @@ import { useAuthReady } from "@/lib/use-auth-ready";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { Icon } from "@/components/pathly/Icon";
 import ChatExperience from "@/components/chat/ChatExperience";
+import { PwaInstallButton } from "@/components/pwa/PwaControls";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useThemeStore } from "@/stores/useThemeStore";
 
@@ -72,6 +73,7 @@ export function LandingPage() {
           >
             چطور کار می‌کند؟
           </a>
+          <PwaInstallButton />
           <button
             aria-label="تغییر تم سایت"
             onClick={toggle}
